@@ -1392,7 +1392,19 @@ int startScannerConnect() {
 }
 
 bool connectScannerBlocking() {
-  Serial.printf("Scanning (free heap: %u bytes)\n", ESP.getFreeHeap());
+  char macText[18];
+  snprintf(macText, sizeof(macText), "%02X:%02X:%02X:%02X:%02X:%02X",
+           scannerAddress[0], scannerAddress[1], scannerAddress[2],
+           scannerAddress[3], scannerAddress[4], scannerAddress[5]);
+  Serial.printf("Scanner connect to %s%s (free heap: %u bytes)\n", macText,
+                btMacString.length() >= 17 ? "" : " (default MAC: no scanner MAC saved!)", ESP.getFreeHeap());
+
+  // a Bluetooth search (GET /scanner_scan) still running makes the connect fail: stop it first
+  if (millis() < btSearchUntil) {
+    SerialBT.discoverAsyncStop();
+    btSearchUntil = 0;
+    delay(200);
+  }
 
   // Classic BT (SPP) connect + BLE advertising running at the same time
   // is a known weak spot for ESP32 dual-mode Bluetooth stability.
@@ -1406,12 +1418,20 @@ bool connectScannerBlocking() {
     delay(100); // let the BT stack settle before starting the SPP connect
   }
 
+  // 1st try: the SPP channel is looked up on the scanner (SDP).
+  // 2nd try: channel 1 directly - some scanners do not answer the lookup but accept channel 1.
   bool ok = SerialBT.connect(scannerAddress);
+  if (!ok) {
+    Serial.println("Scanner connect: no answer on the SPP lookup, trying channel 1");
+    delay(500);
+    ok = SerialBT.connect(scannerAddress, 1);
+  }
   scannerConnected = ok;                  // set BEFORE scannerConnecting goes false: loop() never sees "idle" in between
   scannerLastResult = ok ? 1 : 2;
 
   Serial.printf("Scanner connect %s (free heap: %u bytes)\n",
-                ok ? "succeeded" : "failed", ESP.getFreeHeap());
+                ok ? "succeeded" : "FAILED - scanner off/asleep, connected to another device (phone / Android screen), "
+                                   "not in SPP mode, or paired to another host", ESP.getFreeHeap());
 
   if (wasAdvertising) {
     delay(100);
