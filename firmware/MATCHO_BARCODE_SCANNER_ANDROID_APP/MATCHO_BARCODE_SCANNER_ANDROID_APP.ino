@@ -299,6 +299,7 @@ char getKey(uint16_t tx, uint16_t ty);
 // accepts it; "type":"MATCHO" maps to the "cryomate" card in the app.
 // -----------------------------------------------------------
 void handleData() {
+  dataRequests++;
   Serial.println("[NET] GET /data from " + httpServer.client().remoteIP().toString());
   StaticJsonDocument<768> d;
   d["device"]      = "APSHGW_" + lastFive;
@@ -350,15 +351,6 @@ void startHttpAndMdns() {
 // in setup() when the router answered within the first 15 s, so a unit that
 // joined the router later was on the network but invisible to the app.
 void maintainNetwork() {
-  // Every 10 s on the Serial Monitor: is the unit on the router, with which IP, and is /data being served?
-  static unsigned long lastNetLog = 0;
-  if (millis() - lastNetLog >= 10000) {
-    lastNetLog = millis();
-    Serial.printf("[NET] wifi=%s ssid=%s ip=%s rssi=%d http=%s apMode=%s\n",
-                  WiFi.status() == WL_CONNECTED ? "CONNECTED" : "NOT CONNECTED",
-                  WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), (int)WiFi.RSSI(),
-                  httpStarted ? "running" : "not started", isAPMode ? "yes" : "no");
-  }
   if (WiFi.status() != WL_CONNECTED) return;
   if (isAPMode) {
     isAPMode = false;
@@ -367,7 +359,41 @@ void maintainNetwork() {
     Serial.println("Joined the router after boot: " + WiFi.localIP().toString());
   }
   if (!arduinoOtaActive) setupArduinoOTA();
-  if (!httpStarted) startHttpAndMdns();
+  if (!httpStarted) {
+    Serial.println("[NET] router connected: " + WiFi.localIP().toString() + " - starting HTTP + mDNS");
+    startHttpAndMdns();
+  }
+}
+
+// -----------------------------------------------------------
+// NETWORK DEBUG on the Serial Monitor (115200 baud).
+// Runs in its OWN FreeRTOS task, so it prints every 5 s even when setup()
+// or loop() is stuck somewhere. "loop idle" tells how long ago loop() last
+// started: a big number means loop() is blocked and /data cannot answer.
+// -----------------------------------------------------------
+volatile unsigned long lastLoopAt = 0;
+volatile unsigned long dataRequests = 0;
+
+void netDebugTask(void *) {
+  for (;;) {
+    vTaskDelay(pdMS_TO_TICKS(5000));
+    wl_status_t st = WiFi.status();
+    Serial.printf("[NET] wifi=%s(%d) mode=%d ssid='%s' ip=%s gw=%s rssi=%d | http=%s mdns=APSHGW_%s._apshgw._tcp | /data asked %lu x | apMode=%s | loop idle %lu ms | heap %u\n",
+                  st == WL_CONNECTED ? "CONNECTED" : "NOT_CONNECTED", (int)st, (int)WiFi.getMode(),
+                  WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), WiFi.gatewayIP().toString().c_str(),
+                  st == WL_CONNECTED ? (int)WiFi.RSSI() : 0,
+                  httpStarted ? "RUNNING" : "NOT_STARTED", lastFive.c_str(), dataRequests,
+                  isAPMode ? "yes" : "no",
+                  lastLoopAt ? millis() - lastLoopAt : 0UL, ESP.getFreeHeap());
+  }
+}
+
+void startNetDebug() {
+  static bool started = false;
+  if (started) return;
+  started = true;
+  xTaskCreatePinnedToCore(netDebugTask, "netDebug", 4096, nullptr, 1, nullptr, 0);
+  Serial.println("[NET] debug task started (status every 5 s)");
 }
 
 // -----------------------------------------------------------
@@ -1333,6 +1359,7 @@ void setup() {
   Serial.printf("Sketch size: %u bytes\n", ESP.getSketchSize());
   Serial.printf("Free sketch space: %u bytes\n", ESP.getFreeSketchSpace());
   Serial.println("================================");
+  startNetDebug();
 
   setupTaskWatchdog(OTA_WDT_TIMEOUT_S);
 
@@ -1380,10 +1407,14 @@ void setup() {
     delay(200);
     WiFi.begin(ssid.c_str(), password.c_str());
 
+    Serial.println("[NET] setup: connecting to '" + ssid + "'");
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 30) {
       delay(500); attempts++;
     }
+    Serial.printf("[NET] setup: wifi status %d after %d tries\n", (int)WiFi.status(), attempts);
+  } else {
+    Serial.println("[NET] setup: NO WiFi saved - set it from the Bluetooth app (SET_WIFI)");
   }
 
   if (WiFi.status() != WL_CONNECTED) {
@@ -1423,7 +1454,7 @@ void setup() {
   maxthermo = new Adafruit_MAX31865(MAX31856_CS, vspi);
 
   if (!maxthermo->begin(MAX31865_2WIRE)) {
-    Serial.println("MAX31856 NOT FOUND!");
+    Serial.println("MAX31856 NOT FOUND! (setup stops here: no loop(), no /data)");
     while (1);
   }
 
@@ -1451,6 +1482,7 @@ void setup() {
   // ---------------- START BLE (replaces WebServer.begin()) ----------------
   startBLEProvisioning();
   delay(300); // let the BLE stack fully settle before we hit it with a Classic BT connect
+  Serial.println("[NET] setup: done, loop() starts");
 
   // The barcode scanner does NOT start here any more: it connects when the scanner icon on the TFT is touched
   // (touch handler of page 0 in loop()). WiFi, BLE and the cloud telemetry start as before.
@@ -1463,6 +1495,7 @@ void setup() {
 
 void loop() {
   unsigned long currentMillis = millis();
+  lastLoopAt = currentMillis;
   unsigned long page2StartTime = 0;
   bool page2TimerStarted = false;
   esp_task_wdt_reset();
