@@ -25,6 +25,17 @@
 #include "ok.h"
 #include "esp_task_wdt.h"
 #include "BluetoothSerial.h"
+#include "esp_bt.h"
+#include "esp_gap_bt_api.h"
+
+// ---------------- RADIO POWER ----------------
+// WiFi + BLE + Classic Bluetooth (scanner) run at the same time. At full transmit
+// power their current peaks make a weak 5 V supply collapse and the ESP32 restarts
+// (rst:0x1 POWERON_RESET). The router and the scanner are close, so lower power is enough.
+#define WIFI_TX_POWER   WIFI_POWER_11dBm      // default is 19.5 dBm
+#define BT_TX_POWER_MIN ESP_PWR_LVL_N6        // Classic Bluetooth (barcode scanner)
+#define BT_TX_POWER_MAX ESP_PWR_LVL_P3        // default max is +9 dBm
+#define BLE_TX_POWER    ESP_PWR_LVL_N0        // BLE (Bluetooth app)
 
 // ---------------- BLE: configuration + firmware OTA ----------------
 // BLE is the ONLY provisioning path (WiFi/scanner-MAC/offset config).
@@ -678,6 +689,8 @@ void startHttpAndMdns() {
 // the HTTP server, mDNS and LAN OTA are started.
 void maintainNetwork() {
   if (WiFi.status() != WL_CONNECTED) return;
+  static bool txPowerSet = false;
+  if (!txPowerSet) { WiFi.setTxPower(WIFI_TX_POWER); txPowerSet = true; }
   if (isAPMode) {
     isAPMode = false;
     WiFi.softAPdisconnect(true);            // config AP no longer needed: the radio stays on the router channel
@@ -1243,6 +1256,7 @@ void startBLEProvisioning() {
 
     String bleName = "MATCH-O_" + lastFive;
     BLEDevice::init(bleName.c_str());
+    BLEDevice::setPower(BLE_TX_POWER);                         // lower BLE current peaks
 
     pBleServer = BLEDevice::createServer();
     pBleServer->setCallbacks(new DeviceBLEServerCallbacks());
@@ -1438,6 +1452,7 @@ bool connectScannerBlocking() {
   }
 
   WiFi.setTxPower(oldTxPower);
+  delay(1500);                            // the new Bluetooth link settles before the heater switches again
   resumeHeaterAfterOTA();
 
   scannerConnected = ok;                  // set BEFORE scannerConnecting goes false: loop() never sees "idle" in between
@@ -1729,6 +1744,7 @@ void setup() {
   digitalWrite(MAX31856_CS, HIGH);
 
   SerialBT.begin("APS_MATCHO", true);
+  esp_bredr_tx_power_set(BT_TX_POWER_MIN, BT_TX_POWER_MAX);   // lower Classic Bluetooth current peaks
 
   tft.begin();
   tft.setRotation(3);
@@ -1764,6 +1780,7 @@ void setup() {
     WiFi.disconnect();
     delay(200);
     WiFi.begin(ssid.c_str(), password.c_str());
+    WiFi.setTxPower(WIFI_TX_POWER);
 
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 30) {
