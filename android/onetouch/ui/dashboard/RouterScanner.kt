@@ -471,8 +471,34 @@ class RouterScanner(context: Context) {
 
     /* ---------- reading one device ---------- */
 
+    /**
+     * A unit low on memory can send its /data answer cut off in the middle
+     * (e.g. ...,"cloudFailures":  and nothing more). The fields before the cut are fine: the text is cut back to the
+     * last complete field and closed with "}". Returns null when nothing usable is left.
+     */
+    private fun repairTruncatedJson(body: String): JSONObject? {
+        val text = body.trim()
+        if (!text.startsWith("{")) return null
+        var cut = text.lastIndexOf(",\"")
+        while (cut > 0) {
+            try {
+                return JSONObject(text.substring(0, cut) + "}")
+            } catch (e: Exception) {
+                cut = text.lastIndexOf(",\"", cut - 1)
+            }
+        }
+        return null
+    }
+
     private fun parseDevice(body: String, ip: String, port: Int, viaMesh: Boolean): NetworkDevice? = try {
-        val json = JSONObject(body)
+        val json = try {
+            JSONObject(body)
+        } catch (e: Exception) {
+            val repaired = repairTruncatedJson(body)
+            if (repaired == null) throw e
+            Log.w(TAG, "$ip sent a cut-off /data answer (${body.length} chars, ${e.message}); the complete fields are used")
+            repaired
+        }
         val rawType = json.optString("type")
         val name = json.optString("device")
         val typeId = typeIdFor(rawType, name)
@@ -619,7 +645,8 @@ fun deviceInfoFrom(typeId: String, json: JSONObject): List<DeviceInfo> {
         "airvoc",
         "dyna_ve"       -> number("aqi")?.let { lines += DeviceInfo("AQI", it) }
         "heating_glass",
-        "warmer"        -> number("temperature")?.let { lines += DeviceInfo("TEMP", "$it°C") }
+        "warmer",
+        "cryomate"      -> number("temperature", 1)?.let { lines += DeviceInfo("TEMP", "$it°C") }
         "labtm"         -> {
             number("temperature")?.let { lines += DeviceInfo("TEMP", "$it°C") }
             number("humidity")?.let { lines += DeviceInfo("HUM", "$it%") }
