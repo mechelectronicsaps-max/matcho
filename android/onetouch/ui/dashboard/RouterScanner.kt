@@ -322,7 +322,12 @@ class RouterScanner(context: Context) {
         targets.values.mapNotNull { t -> t.device?.let { d -> if (t.failures >= STALE_AFTER) d.copy(stale = true) else d } }
             .forEach { all[it.name] = it }
         riders.values.flatten().forEach { if (it.name !in all) all[it.name] = it }
-        devices = all.values.toList()
+        val list = all.values.toList()
+        if (list.map { it.name to it.typeId } != devices.map { it.name to it.typeId }) {
+            // Logcat filter "OneTouchRouter": every device the grid receives, with the device id its tile must have
+            Log.d(TAG, "devices for the grid: " + list.joinToString { "${it.name} @ ${it.ip} -> typeId '${it.typeId}'" })
+        }
+        devices = list
         source = "mDNS $mdnsCount, sweep $sweepCount"
     }
 
@@ -471,9 +476,13 @@ class RouterScanner(context: Context) {
         val rawType = json.optString("type")
         val name = json.optString("device")
         val typeId = typeIdFor(rawType, name)
-        if (name.isBlank() || typeId == null) null
+        if (name.isBlank() || typeId == null) {
+            Log.w(TAG, "$ip answered /data but it is not a known device (device='$name', type='$rawType'): ${body.take(120)}")
+            null
+        }
         else NetworkDevice(name, json.optString("ip", ip).ifBlank { ip }, typeId, rawType.ifBlank { name.take(5) }, json, viaMesh, port)
     } catch (e: Exception) {
+        Log.w(TAG, "$ip answered /data with text that is not JSON (${e.message}): ${body.take(120)}")
         null
     }
 
