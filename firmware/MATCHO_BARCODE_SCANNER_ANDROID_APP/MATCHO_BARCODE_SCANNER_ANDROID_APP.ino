@@ -299,6 +299,7 @@ char getKey(uint16_t tx, uint16_t ty);
 // accepts it; "type":"MATCHO" maps to the "cryomate" card in the app.
 // -----------------------------------------------------------
 void handleData() {
+  Serial.println("[NET] GET /data from " + httpServer.client().remoteIP().toString());
   StaticJsonDocument<768> d;
   d["device"]      = "APSHGW_" + lastFive;
   d["type"]        = "MATCHO";
@@ -349,6 +350,15 @@ void startHttpAndMdns() {
 // in setup() when the router answered within the first 15 s, so a unit that
 // joined the router later was on the network but invisible to the app.
 void maintainNetwork() {
+  // Every 10 s on the Serial Monitor: is the unit on the router, with which IP, and is /data being served?
+  static unsigned long lastNetLog = 0;
+  if (millis() - lastNetLog >= 10000) {
+    lastNetLog = millis();
+    Serial.printf("[NET] wifi=%s ssid=%s ip=%s rssi=%d http=%s apMode=%s\n",
+                  WiFi.status() == WL_CONNECTED ? "CONNECTED" : "NOT CONNECTED",
+                  WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), (int)WiFi.RSSI(),
+                  httpStarted ? "running" : "not started", isAPMode ? "yes" : "no");
+  }
   if (WiFi.status() != WL_CONNECTED) return;
   if (isAPMode) {
     isAPMode = false;
