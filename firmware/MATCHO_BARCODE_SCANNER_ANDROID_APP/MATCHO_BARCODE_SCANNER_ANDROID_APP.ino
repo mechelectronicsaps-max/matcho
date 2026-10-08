@@ -110,6 +110,8 @@ HTTPClient http;
 
 WebServer httpServer(80);
 bool httpStarted = false;
+volatile unsigned long lastLoopAt = 0;      // network debug: when loop() last started
+volatile unsigned long dataRequests = 0;    // network debug: how many GET /data were answered
 volatile bool scannerReconnectPending = false;   // set by GET /scanner_handback, served in loop()
 
 // ---------------- MAX31856 PINS ----------------
@@ -371,9 +373,6 @@ void maintainNetwork() {
 // or loop() is stuck somewhere. "loop idle" tells how long ago loop() last
 // started: a big number means loop() is blocked and /data cannot answer.
 // -----------------------------------------------------------
-volatile unsigned long lastLoopAt = 0;
-volatile unsigned long dataRequests = 0;
-
 void netDebugTask(void *) {
   for (;;) {
     vTaskDelay(pdMS_TO_TICKS(5000));
