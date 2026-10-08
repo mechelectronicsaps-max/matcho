@@ -282,6 +282,7 @@ void drawOTAStartScreen();
 void drawBLEOtaProgress(size_t current, size_t total);
 bool performNetworkOTA(const String &url, const String &version);
 void setupArduinoOTA();
+void maintainNetwork();
 void drawMatchIcon(const String &col);
 void handleHeaterBackground();
 void printFormattedDate();
@@ -340,6 +341,23 @@ void startHttpAndMdns() {
   httpServer.begin();
   httpStarted = true;
   Serial.println("HTTP server + mDNS ready: " + host + " @ " + WiFi.localIP().toString());
+}
+
+// Called every loop(): as soon as the station is connected - at boot OR later
+// (router came up after the unit, WiFi.reconnect() succeeded, AP fallback) -
+// the HTTP server, mDNS and LAN OTA are started. Before, they were only started
+// in setup() when the router answered within the first 15 s, so a unit that
+// joined the router later was on the network but invisible to the app.
+void maintainNetwork() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (isAPMode) {
+    isAPMode = false;
+    WiFi.softAPdisconnect(true);            // config AP no longer needed: the radio stays on the router channel
+    configTime(19800, 0, "pool.ntp.org", "time.nist.gov");
+    Serial.println("Joined the router after boot: " + WiFi.localIP().toString());
+  }
+  if (!arduinoOtaActive) setupArduinoOTA();
+  if (!httpStarted) startHttpAndMdns();
 }
 
 // -----------------------------------------------------------
@@ -1361,8 +1379,13 @@ void setup() {
   if (WiFi.status() != WL_CONNECTED) {
     isAPMode = true;
     String WifiName = "APSMHG_" + String(lastFive);
-    WiFi.mode(WIFI_AP);
+    // AP + STA: the configuration AP comes up, but the station side keeps trying the
+    // router. Before, WIFI_AP alone meant a unit that missed the router at boot (router
+    // slow to start, weak signal) never joined it until the next reboot, so the app
+    // could never find it on the network.
+    WiFi.mode(WIFI_AP_STA);
     WiFi.softAP(WifiName.c_str());
+    if (ssid != "" && ssid != "null") WiFi.begin(ssid.c_str(), password.c_str());
     delay(500);
     Serial.println("AP Mode Started (BLE configuration only).");
 
@@ -1438,6 +1461,9 @@ void loop() {
   // never races with an in-progress BLE or cloud/HTTP firmware transfer.
   if (arduinoOtaActive && !bleFirmwareUpdating && !netFirmwareUpdating) {
     ArduinoOTA.handle();
+  }
+  if (!bleFirmwareUpdating && !netFirmwareUpdating) {
+    maintainNetwork();
   }
   if (httpStarted && !bleFirmwareUpdating && !netFirmwareUpdating) {
     httpServer.handleClient();
@@ -1964,6 +1990,8 @@ void sendTemperatureData() {
                      "&rssi=" + String(currentRssi);
 
   http.begin(client, serverName);
+  http.setConnectTimeout(2000);   // the default waits much longer; loop() (and GET /data for the app) is blocked meanwhile
+  http.setTimeout(2500);
   http.addHeader("Content-Type", "application/x-www-form-urlencoded");
 
   int httpCode = http.POST(postData);

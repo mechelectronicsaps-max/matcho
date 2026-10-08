@@ -386,35 +386,54 @@ class RouterScanner(context: Context) {
             wifi.createMulticastLock("onetouch-mdns").apply { setReferenceCounted(true); acquire() }
         }.onFailure { Log.w(TAG, "multicast lock: ${it.message}") }.getOrNull()
 
-        // only one resolveService() may run at a time -> a queue
+        // only one resolveService() may run at a time -> a queue (the NSD callbacks and the retry below run on
+        // different threads, so every use of the queue is synchronized on it)
         val queue = ArrayDeque<NsdServiceInfo>()
+        val attempts = HashMap<String, Int>()            // service name -> resolve tries
         var resolving = false
         lateinit var resolveNext: () -> Unit
 
         val resolveListener = object : NsdManager.ResolveListener {
             override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                 Log.w(TAG, "resolve failed ${serviceInfo.serviceName}: $errorCode")
-                resolving = false
+                synchronized(queue) { resolving = false }
+                // onServiceFound comes only ONCE per device: a failed resolve (often FAILURE_ALREADY_ACTIVE) used to
+                // lose the device for good. It is tried again a little later (5 tries).
+                val tries = synchronized(queue) {
+                    ((attempts[serviceInfo.serviceName] ?: 0) + 1).also { attempts[serviceInfo.serviceName] = it }
+                }
+                if (tries < 5) {
+                    launch {
+                        delay(1000L * tries)
+                        synchronized(queue) { queue.addLast(serviceInfo) }
+                        resolveNext()
+                    }
+                }
                 resolveNext()
             }
 
             override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
-                resolving = false
+                synchronized(queue) { resolving = false; attempts.remove(serviceInfo.serviceName) }
                 val host = serviceInfo.host?.hostAddress
                 if (host != null && !host.contains(':')) {                // IPv4 only
                     trySend(Announced(host, if (serviceInfo.port > 0) serviceInfo.port else 80))
+                } else {
+                    Log.w(TAG, "resolved ${serviceInfo.serviceName} without an IPv4 address: $host")
                 }
                 resolveNext()
             }
         }
 
         resolveNext = {
-            if (!resolving) {
-                val next = queue.removeFirstOrNull()
-                if (next != null) {
-                    resolving = true
-                    runCatching { nsd.resolveService(next, resolveListener) }.onFailure { resolving = false }
-                }
+            val next = synchronized(queue) {
+                if (resolving) null else queue.removeFirstOrNull()?.also { resolving = true }
+            }
+            if (next != null) {
+                runCatching { nsd.resolveService(next, resolveListener) }
+                    .onFailure {
+                        Log.w(TAG, "resolveService ${next.serviceName}: ${it.message}")
+                        synchronized(queue) { resolving = false }
+                    }
             }
         }
 
@@ -422,7 +441,8 @@ class RouterScanner(context: Context) {
             object : NsdManager.DiscoveryListener {
                 override fun onDiscoveryStarted(regType: String) { Log.d(TAG, "mDNS discovery started: $regType") }
                 override fun onServiceFound(serviceInfo: NsdServiceInfo) {
-                    queue.addLast(serviceInfo)
+                    Log.d(TAG, "mDNS saw ${serviceInfo.serviceName} (${serviceInfo.serviceType})")
+                    synchronized(queue) { queue.addLast(serviceInfo) }
                     resolveNext()
                 }
                 override fun onServiceLost(serviceInfo: NsdServiceInfo) {}      // devices are removed when they stop answering
