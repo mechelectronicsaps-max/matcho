@@ -110,9 +110,17 @@ HTTPClient http;
 
 WebServer httpServer(80);
 bool httpStarted = false;
-volatile unsigned long lastLoopAt = 0;      // network debug: when loop() last started
-volatile unsigned long dataRequests = 0;    // network debug: how many GET /data were answered
 volatile bool scannerReconnectPending = false;   // set by GET /scanner_handback, served in loop()
+volatile bool scannerHeldByScreen = false;       // the Android screen took the scanner (GET /scanner_take): no auto take-back
+volatile bool scannerConnecting = false;         // a Bluetooth connect to the scanner is running (own task)
+volatile uint8_t scannerLastResult = 0;          // 0 = no try yet, 1 = last connect ok, 2 = last connect failed
+unsigned long scannerModeStep2At = 0;            // "Match-O mode": the 2nd command (AT+MODE=1) is sent at this millis()
+unsigned long btSearchUntil = 0;                 // GET /scanner_scan: the Bluetooth search runs until this millis()
+
+// Temperature offset from the app (GET /offset). 1 = the app must send the password
+// (then set OFFSET_NEEDS_PASSWORD = true in the app as well).
+#define OFFSET_NEEDS_PASSWORD 0
+#define OFFSET_PASSWORD "2325"                   // the same code as the calibration keypad on the TFT
 
 // ---------------- MAX31856 PINS ----------------
 #define MAX31856_CS   14
@@ -276,6 +284,10 @@ void parseMACAddress(String macStr, uint8_t* macBytes);
 void storeFloatInEEPROM(float value);
 float readFloatFromEEPROM();
 void connectScanner();
+bool connectScannerBlocking();
+int startScannerConnect();
+void drawScannerIcon();
+void logActivity(const String &text);
 bool parseScannerBatteryLine(const String &line);
 void handleBLECommand(String jsonStr);
 void startBLEProvisioning();
@@ -295,53 +307,367 @@ void verticalBarGraph(int value, int x, int y, int barWidth, int barHeight, cons
 char getKey(uint16_t tx, uint16_t ty);
 
 // -----------------------------------------------------------
-// HTTP (port 80) + mDNS, so the Android app can find this unit on the
-// router:  GET /data  -> JSON status,  _apshgw._tcp  -> mDNS announce.
-// "device" must start with APSHGW (or APSDWM) so the app's typeIdFor()
-// accepts it; "type":"MATCHO" maps to the "cryomate" card in the app.
+// HTTP (port 80) + mDNS for the Android app (Router mode).
+//   mDNS  _apshgw._tcp                -> the app finds the unit
+//   GET /data                         -> status of the unit (temperature, scanner, patient, RFID ...)
+//   GET /activity?since=N             -> what happened on the unit (log), newer than event N
+//   GET /scans?since=N                -> the scanned barcodes and their result, newer than scan N
+//   GET /rfid                         -> RFID witness: tag 1 / tag 2 / MATCH or MISMATCH + patient data
+//   GET /offset?check=1&pw= / ?value=V&pw=        -> temperature offset
+//   GET /scanner_connect?mac= /scanner_disconnect /scanner_battery
+//   GET /scanner_mode?mode=wireless|matcho        -> the barcode scanner of the unit
+//   GET /scanner_scan, /scanner_devices           -> search for Bluetooth scanners (10 s)
+//   GET /scanner_take (= /scanner_release), /scanner_handback -> the Android screen borrows the scanner
+// "device" starts with APSHGW and "type" is MATCHO: the app shows it as the MATCHO ("cryomate") card.
 // -----------------------------------------------------------
-void handleData() {
-  dataRequests++;
-  Serial.println("[NET] GET /data from " + httpServer.client().remoteIP().toString());
-  StaticJsonDocument<768> d;
-  d["device"]      = "APSHGW_" + lastFive;
-  d["type"]        = "MATCHO";
-  d["ip"]          = WiFi.localIP().toString();
-  d["mac"]         = WiFi.macAddress();
-  d["rssi"]        = WiFi.RSSI();
-  d["temperature"] = temperature;
-  d["scannerConnected"] = scannerConnected;
-  d["barcode"]     = lastScannedBarcode;
-  d["firmware"]    = MATCHO_FW_VERSION;
-  String out; serializeJson(d, out);
+
+// The log and the scans are small ring buffers in static RAM: this unit runs with
+// little free heap (WiFi + BLE + Classic Bluetooth), so nothing here grows the heap.
+#define ACTIVITY_MAX  16
+#define ACTIVITY_TEXT 48
+struct ActivityEntry { uint32_t id; uint32_t epoch; uint32_t up; char text[ACTIVITY_TEXT]; };
+ActivityEntry activityLog[ACTIVITY_MAX];
+uint32_t activityLastId = 0;
+
+#define SCAN_MAX    12
+#define SCAN_CODE   40
+#define SCAN_RESULT 32
+struct ScanEntry { uint32_t id; uint32_t epoch; uint32_t up; bool patient; char code[SCAN_CODE]; char result[SCAN_RESULT]; };
+ScanEntry scanLog[SCAN_MAX];
+uint32_t scanLastId = 0;
+
+// RFID witness result (filled in loop() when the server answered for tag 1 + tag 2)
+uint32_t witnessSeq = 0;            // +1 for every result: the app opens its popup on a new number
+unsigned long witnessAt = 0;        // millis() of the last result
+String witnessResult = "";          // "match" / "mismatch"
+String witnessCode = "", witnessProcess = "", witnessStage = "", witnessProcessFull = "", witnessMessage = "";
+String witnessMale = "", witnessMaleAge = "", witnessMaleBlood = "";
+String witnessFemale = "", witnessFemaleAge = "", witnessFemaleBlood = "";
+
+uint32_t nowEpoch() {
+  time_t t = time(nullptr);
+  return t > 1000000000 ? (uint32_t)t : 0;          // 0 = clock not set yet: the app shows the uptime instead
+}
+
+// Only call from loop() (the HTTP handlers run in loop() too, so there is no race).
+void logActivity(const String &text) {
+  uint32_t id = ++activityLastId;
+  ActivityEntry &e = activityLog[(id - 1) % ACTIVITY_MAX];
+  e.id = id;
+  e.epoch = nowEpoch();
+  e.up = millis() / 1000;
+  strlcpy(e.text, text.c_str(), sizeof(e.text));
+}
+
+uint32_t addScan(const String &code, bool patient) {
+  uint32_t id = ++scanLastId;
+  ScanEntry &e = scanLog[(id - 1) % SCAN_MAX];
+  e.id = id;
+  e.epoch = nowEpoch();
+  e.up = millis() / 1000;
+  e.patient = patient;
+  strlcpy(e.code, code.c_str(), sizeof(e.code));
+  e.result[0] = 0;
+  return id;
+}
+
+void setScanResult(uint32_t id, const String &result) {
+  ScanEntry &e = scanLog[(id - 1) % SCAN_MAX];
+  if (e.id == id) strlcpy(e.result, result.c_str(), sizeof(e.result));
+}
+
+// a JSON value as text; "" when it is missing or null (never the word "null")
+template <typename T>
+String jsonText(const T &v) {
+  if (v.isNull()) return "";
+  return v.template as<String>();
+}
+
+// One static buffer for every answer: one allocation per answer, so the text is
+// never cut off when the heap is low (that is what cut the old /data answer).
+void sendJson(JsonDocument &doc, int code = 200) {
+  static char buf[2048];
+  if (serializeJson(doc, buf, sizeof(buf)) == 0) strcpy(buf, "{}");
   httpServer.sendHeader("Access-Control-Allow-Origin", "*");
-  httpServer.send(200, "application/json", out);
+  httpServer.send(code, "application/json", buf);
 }
 
-// The phone let the barcode scanner go: this unit takes it back.
-// The (blocking) Bluetooth connect is done in loop(), not in this handler.
-void handleScannerHandback() {
-  scannerReconnectPending = true;
-  httpServer.send(200, "text/plain", "ok");
+void sendOk() {
+  StaticJsonDocument<32> d;
+  d["ok"] = true;
+  sendJson(d);
 }
 
-// The phone wants the barcode scanner: this unit lets it go first.
-void handleScannerRelease() {
+void sendError(int code, const char *error) {
+  StaticJsonDocument<96> d;
+  d["error"] = error;
+  sendJson(d, code);
+}
+
+bool isValidMac(const String &mac) {
+  if (mac.length() != 17) return false;
+  for (int i = 0; i < 17; i++) {
+    char c = mac[i];
+    if (i % 3 == 2) { if (c != ':') return false; }
+    else if (!isxdigit(c)) return false;
+  }
+  return true;
+}
+
+void handleData() {
+  StaticJsonDocument<1536> d;
+  uint32_t heap = ESP.getFreeHeap();
+  d["device"]                = "APSHGW_" + lastFive;
+  d["type"]                  = "MATCHO";
+  d["firmwareVersion"]       = MATCHO_FW_VERSION;
+  d["ip"]                    = WiFi.localIP().toString();
+  d["mac"]                   = WiFi.macAddress();
+  d["ssid"]                  = WiFi.SSID();
+  d["rssi"]                  = WiFi.RSSI();
+  d["temperature"]           = temperature;
+  d["offset"]                = readFloatFromEEPROM();
+  d["heaterOn"]              = digitalRead(HEATER_PIN) == HIGH;
+  d["scannerConnected"]      = scannerConnected;
+  d["scannerMac"]            = btMacString;
+  d["scannerJob"]            = scannerConnecting ? "connecting" : "idle";
+  d["scannerLastResult"]     = scannerLastResult == 1 ? "ok" : (scannerLastResult == 2 ? "failed" : "");
+  d["scannerHeldByScreen"]   = (bool)scannerHeldByScreen;
+  d["scannerBatteryPercent"] = scannerBatteryPercent;
+  d["scannerBatteryVoltage"] = scannerBatteryVoltage;
+  d["scannerBatteryPending"] = (scannerBatteryRequestedAt != 0) && (millis() - scannerBatteryRequestedAt < 5000);
+  d["scannerBatteryAge"]     = scannerBatteryUpdatedAt ? (long)((millis() - scannerBatteryUpdatedAt) / 1000) : -1L;
+  d["lastBarcode"]           = lastScannedBarcode;
+  d["patientMale"]           = displayMaleName;
+  d["patientFemale"]         = displayFemaleName;
+  d["matchedColumn"]         = displayMatchedCol;
+  d["localMatchMode"]        = localMatchMode;
+  d["witnessState"]          = witnessState;
+  d["rfid1"]                 = rfid_1_val;
+  d["rfid2"]                 = rfid_2_val;
+  d["lastActivity"]          = activityLastId;
+  d["lastScan"]              = scanLastId;
+  d["uptime"]                = millis() / 1000;
+  d["freeHeap"]              = heap;
+  d["lowMemory"]             = heap < 12000;
+  sendJson(d);
+}
+
+// GET /activity?since=N  ->  {"last":N,"events":[{"id","t","up","text"}]}  (oldest first)
+void handleActivity() {
+  uint32_t since = strtoul(httpServer.arg("since").c_str(), nullptr, 10);
+  StaticJsonDocument<2048> d;
+  d["last"] = activityLastId;
+  JsonArray events = d.createNestedArray("events");
+  uint32_t first = activityLastId > ACTIVITY_MAX ? activityLastId - ACTIVITY_MAX + 1 : 1;
+  if (since + 1 > first) first = since + 1;
+  for (uint32_t id = first; id <= activityLastId; id++) {
+    const ActivityEntry &e = activityLog[(id - 1) % ACTIVITY_MAX];
+    if (e.id != id) continue;
+    JsonObject o = events.createNestedObject();
+    o["id"] = e.id;
+    o["t"] = e.epoch;
+    o["up"] = e.up;
+    o["text"] = (const char *)e.text;
+  }
+  sendJson(d);
+}
+
+// GET /scans?since=N  ->  {"last":N,"scans":[{"id","t","up","kind","code","result"}]}  (oldest first)
+void handleScans() {
+  uint32_t since = strtoul(httpServer.arg("since").c_str(), nullptr, 10);
+  StaticJsonDocument<2048> d;
+  d["last"] = scanLastId;
+  JsonArray scans = d.createNestedArray("scans");
+  uint32_t first = scanLastId > SCAN_MAX ? scanLastId - SCAN_MAX + 1 : 1;
+  if (since + 1 > first) first = since + 1;
+  for (uint32_t id = first; id <= scanLastId; id++) {
+    const ScanEntry &e = scanLog[(id - 1) % SCAN_MAX];
+    if (e.id != id) continue;
+    JsonObject o = scans.createNestedObject();
+    o["id"] = e.id;
+    o["t"] = e.epoch;
+    o["up"] = e.up;
+    o["kind"] = e.patient ? "patient" : "sample";
+    o["code"] = (const char *)e.code;
+    o["result"] = (const char *)e.result;
+  }
+  sendJson(d);
+}
+
+// GET /rfid  ->  witness state (0 idle, 1 tag 1 read, 2 checking) + the last result
+void handleRfid() {
+  StaticJsonDocument<1536> d;
+  d["witnessState"]       = witnessState;
+  d["rfid1"]              = rfid_1_val;
+  d["rfid2"]              = rfid_2_val;
+  d["witnessSeq"]         = witnessSeq;
+  d["witnessAge"]         = witnessAt ? (long)((millis() - witnessAt) / 1000) : -1L;
+  d["witnessResult"]      = witnessResult;
+  d["witnessCode"]        = witnessCode;
+  d["witnessProcess"]     = witnessProcess;
+  d["witnessStage"]       = witnessStage;
+  d["witnessProcessFull"] = witnessProcessFull;
+  d["witnessMale"]        = witnessMale;
+  d["witnessMaleAge"]     = witnessMaleAge;
+  d["witnessMaleBlood"]   = witnessMaleBlood;
+  d["witnessFemale"]      = witnessFemale;
+  d["witnessFemaleAge"]   = witnessFemaleAge;
+  d["witnessFemaleBlood"] = witnessFemaleBlood;
+  d["witnessPatientTag"]  = rfid_1_val;
+  d["witnessProcessTag"]  = rfid_2_val;
+  d["witnessMessage"]     = witnessMessage;
+  sendJson(d);
+}
+
+// GET /offset?check=1&pw=XXXX   or   GET /offset?value=-0.25&pw=XXXX
+void handleOffset() {
+#if OFFSET_NEEDS_PASSWORD
+  if (httpServer.arg("pw") != OFFSET_PASSWORD) { sendError(403, "wrong_password"); return; }
+#endif
+  if (httpServer.hasArg("check")) { sendOk(); return; }
+  if (!httpServer.hasArg("value")) { sendError(400, "missing_value"); return; }
+  float v = httpServer.arg("value").toFloat();
+  if (isnan(v) || isinf(v) || v < -50.0f || v > 50.0f) { sendError(400, "invalid_offset"); return; }
+  storeFloatInEEPROM(v);
+  logActivity("Offset set to " + String(v, 2) + " C");
+  StaticJsonDocument<96> d;
+  d["offset"] = v;
+  d["currentTemp"] = temperature;
+  sendJson(d);
+}
+
+// GET /scanner_connect?mac=AA:BB:CC:DD:EE:FF  (mac optional: the saved one is used)
+void handleScannerConnect() {
+  if (httpServer.hasArg("mac")) {
+    String mac = httpServer.arg("mac");
+    mac.trim();
+    mac.toUpperCase();
+    if (!isValidMac(mac)) { sendError(400, "invalid_mac"); return; }
+    if (mac != btMacString) {
+      btMacString = mac;
+      parseMACAddress(btMacString, scannerAddress);
+      saveConfigToEEPROM();
+      logActivity("Scanner MAC set: " + btMacString);
+    }
+  }
+  if (btMacString.length() < 17) { sendError(400, "invalid_mac"); return; }
+  if (scannerConnected) { sendOk(); return; }
+  if (scannerConnecting) { sendError(409, "busy"); return; }
+  if (millis() - lastReconnect < 3000) { sendError(429, "wait"); return; }
+  scannerHeldByScreen = false;
+  lastReconnect = millis();
+  int r = startScannerConnect();
+  if (r == 1) { sendError(503, "low_memory"); return; }
+  if (r == 2) { sendError(500, "no_task"); return; }
+  sendOk();
+}
+
+void handleScannerDisconnect() {
+  if (scannerConnecting) { sendError(409, "busy"); return; }
   scannerReconnectPending = false;
   if (SerialBT.connected()) SerialBT.disconnect();
   scannerConnected = false;
-  ICON_SCAN_IDLE();
-  httpServer.send(200, "text/plain", "ok");
+  sendOk();
+}
+
+void handleScannerBattery() {
+  if (!scannerConnected) { sendError(409, "not_connected"); return; }
+  SerialBT.print("%BAT_VOL#");
+  scannerBatteryRequestedAt = millis();
+  sendOk();
+}
+
+// wireless = the scanner works on its own;  matcho = Bluetooth, then 2 s later the SPP profile (done in loop())
+void handleScannerMode() {
+  if (!scannerConnected) { sendError(409, "not_connected"); return; }
+  String mode = httpServer.arg("mode");
+  if (mode == "wireless") {
+    SerialBT.print("%#IFSNO$1");
+    logActivity("Scanner: wireless mode");
+  } else if (mode == "matcho") {
+    SerialBT.print("%#IFSNO$4");
+    scannerModeStep2At = millis() + 2000;
+    logActivity("Scanner: Match-O mode");
+  } else {
+    sendError(400, "unknown_mode");
+    return;
+  }
+  sendOk();
+}
+
+// GET /scanner_scan: 10 s Bluetooth search in the background (loop() keeps running)
+void handleScannerScan() {
+  if (scannerConnecting) { sendError(409, "busy"); return; }
+  if (millis() < btSearchUntil) { sendOk(); return; }      // already searching
+  if (ESP.getFreeHeap() < 15000) { sendError(503, "low_memory"); return; }
+  if (!SerialBT.discoverAsync([](BTAdvertisedDevice *) {}, 10000)) { sendError(500, "no_task"); return; }
+  btSearchUntil = millis() + 10500;
+  logActivity("Searching for Bluetooth scanners");
+  sendOk();
+}
+
+// GET /scanner_devices  ->  {"searching":bool,"devices":[{"name","mac"}]}  (the list is given when the search is over)
+void handleScannerDevices() {
+  StaticJsonDocument<2048> d;
+  bool searching = millis() < btSearchUntil;
+  d["searching"] = searching;
+  JsonArray list = d.createNestedArray("devices");
+  if (!searching && btSearchUntil != 0) {
+    BTScanResults *results = SerialBT.getScanResults();
+    if (results != nullptr) {
+      for (int i = 0; i < results->getCount() && i < 20; i++) {
+        BTAdvertisedDevice *dev = results->getDevice(i);
+        if (dev == nullptr) continue;
+        String mac = dev->getAddress().toString().c_str();
+        mac.toUpperCase();
+        JsonObject o = list.createNestedObject();
+        o["name"] = String(dev->getName().c_str());
+        o["mac"] = mac;
+      }
+    }
+  }
+  sendJson(d);
+}
+
+// The Android screen takes the barcode scanner (it can be connected to one device only):
+// this unit lets it go and does NOT take it back by itself until /scanner_handback or a touch on the icon.
+void handleScannerTake() {
+  if (scannerConnecting) { sendError(409, "busy"); return; }
+  scannerReconnectPending = false;
+  scannerHeldByScreen = true;
+  if (SerialBT.connected()) SerialBT.disconnect();
+  scannerConnected = false;
+  logActivity("Scanner given to the Android screen");
+  sendOk();
+}
+
+// The Android screen gave the scanner back: this unit takes it again (the connect runs in loop()).
+void handleScannerHandback() {
+  scannerHeldByScreen = false;
+  scannerReconnectPending = true;
+  sendOk();
 }
 
 void startHttpAndMdns() {
   if (httpStarted) return;
   String host = "APSHGW_" + lastFive;
   MDNS.begin(host.c_str());                 // may return false if ArduinoOTA already started mDNS: harmless
-  MDNS.addService("apshgw", "tcp", 80);     // matches "_apshgw._tcp." in the app (always add it)
+  MDNS.addService("apshgw", "tcp", 80);     // matches "_apshgw._tcp." in the app
   httpServer.on("/data", HTTP_GET, handleData);
+  httpServer.on("/activity", HTTP_GET, handleActivity);
+  httpServer.on("/scans", HTTP_GET, handleScans);
+  httpServer.on("/rfid", HTTP_GET, handleRfid);
+  httpServer.on("/offset", HTTP_GET, handleOffset);
+  httpServer.on("/scanner_connect", HTTP_GET, handleScannerConnect);
+  httpServer.on("/scanner_disconnect", HTTP_GET, handleScannerDisconnect);
+  httpServer.on("/scanner_battery", HTTP_GET, handleScannerBattery);
+  httpServer.on("/scanner_mode", HTTP_GET, handleScannerMode);
+  httpServer.on("/scanner_scan", HTTP_GET, handleScannerScan);
+  httpServer.on("/scanner_devices", HTTP_GET, handleScannerDevices);
+  httpServer.on("/scanner_take", HTTP_GET, handleScannerTake);
+  httpServer.on("/scanner_release", HTTP_GET, handleScannerTake);
   httpServer.on("/scanner_handback", HTTP_GET, handleScannerHandback);
-  httpServer.on("/scanner_release", HTTP_GET, handleScannerRelease);
+  httpServer.onNotFound([]() { sendError(404, "not_found"); });
   httpServer.begin();
   httpStarted = true;
   Serial.println("HTTP server + mDNS ready: " + host + " @ " + WiFi.localIP().toString());
@@ -349,50 +675,16 @@ void startHttpAndMdns() {
 
 // Called every loop(): as soon as the station is connected - at boot OR later
 // (router came up after the unit, WiFi.reconnect() succeeded, AP fallback) -
-// the HTTP server, mDNS and LAN OTA are started. Before, they were only started
-// in setup() when the router answered within the first 15 s, so a unit that
-// joined the router later was on the network but invisible to the app.
+// the HTTP server, mDNS and LAN OTA are started.
 void maintainNetwork() {
   if (WiFi.status() != WL_CONNECTED) return;
   if (isAPMode) {
     isAPMode = false;
     WiFi.softAPdisconnect(true);            // config AP no longer needed: the radio stays on the router channel
     configTime(19800, 0, "pool.ntp.org", "time.nist.gov");
-    Serial.println("Joined the router after boot: " + WiFi.localIP().toString());
   }
   if (!arduinoOtaActive) setupArduinoOTA();
-  if (!httpStarted) {
-    Serial.println("[NET] router connected: " + WiFi.localIP().toString() + " - starting HTTP + mDNS");
-    startHttpAndMdns();
-  }
-}
-
-// -----------------------------------------------------------
-// NETWORK DEBUG on the Serial Monitor (115200 baud).
-// Runs in its OWN FreeRTOS task, so it prints every 5 s even when setup()
-// or loop() is stuck somewhere. "loop idle" tells how long ago loop() last
-// started: a big number means loop() is blocked and /data cannot answer.
-// -----------------------------------------------------------
-void netDebugTask(void *) {
-  for (;;) {
-    vTaskDelay(pdMS_TO_TICKS(5000));
-    wl_status_t st = WiFi.status();
-    Serial.printf("[NET] wifi=%s(%d) mode=%d ssid='%s' ip=%s gw=%s rssi=%d | http=%s mdns=APSHGW_%s._apshgw._tcp | /data asked %lu x | apMode=%s | loop idle %lu ms | heap %u\n",
-                  st == WL_CONNECTED ? "CONNECTED" : "NOT_CONNECTED", (int)st, (int)WiFi.getMode(),
-                  WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), WiFi.gatewayIP().toString().c_str(),
-                  st == WL_CONNECTED ? (int)WiFi.RSSI() : 0,
-                  httpStarted ? "RUNNING" : "NOT_STARTED", lastFive.c_str(), dataRequests,
-                  isAPMode ? "yes" : "no",
-                  lastLoopAt ? millis() - lastLoopAt : 0UL, ESP.getFreeHeap());
-  }
-}
-
-void startNetDebug() {
-  static bool started = false;
-  if (started) return;
-  started = true;
-  xTaskCreatePinnedToCore(netDebugTask, "netDebug", 4096, nullptr, 1, nullptr, 0);
-  Serial.println("[NET] debug task started (status every 5 s)");
+  if (!httpStarted) startHttpAndMdns();
 }
 
 // -----------------------------------------------------------
@@ -1063,9 +1355,43 @@ void loadConfigFromEEPROM() {
   Serial.println("Loaded WiFi SSID from EEPROM: " + ssid);
 }
 
-void connectScanner() {
-  if (scannerConnected) return;
+// The scanner icon on the TFT. loop() calls it when the state changes; the
+// connect itself never draws (it runs in its own task, and the TFT is not task-safe).
+void drawScannerIcon() {
+  if (scannerConnected) { ICON_SCAN_CONNECTED(); }
+  else if (scannerConnecting) { ICON_SCAN_ACTIVE(); }
+  else { ICON_SCAN_IDLE(); }
+}
 
+// Blocking connect, used by the BLE commands (CONNECT_SCANNER / SAVE_BT_MAC) and at boot.
+void connectScanner() {
+  if (scannerConnected || scannerConnecting) return;
+  scannerConnecting = true;
+  connectScannerBlocking();
+  scannerConnecting = false;
+}
+
+void scannerConnectTask(void *) {
+  connectScannerBlocking();
+  scannerConnecting = false;
+  vTaskDelete(NULL);
+}
+
+// Touch on the icon / app: the connect (SerialBT.connect() blocks up to ~10 s) runs in its
+// own task, so the TFT, the heater display and the HTTP answers for the app keep going.
+// 0 = started, 1 = low memory, 2 = could not start (or already busy)
+int startScannerConnect() {
+  if (scannerConnected || scannerConnecting) return 2;
+  if (ESP.getFreeHeap() < 15000) return 1;
+  scannerConnecting = true;
+  if (xTaskCreatePinnedToCore(scannerConnectTask, "scannerConnect", 6144, nullptr, 1, nullptr, 0) != pdPASS) {
+    scannerConnecting = false;
+    return 2;
+  }
+  return 0;
+}
+
+bool connectScannerBlocking() {
   Serial.printf("Scanning (free heap: %u bytes)\n", ESP.getFreeHeap());
 
   // Classic BT (SPP) connect + BLE advertising running at the same time
@@ -1081,9 +1407,8 @@ void connectScanner() {
   }
 
   bool ok = SerialBT.connect(scannerAddress);
-  scannerConnected = ok;
-  if (scannerConnected) { ICON_SCAN_CONNECTED(); }
-  else { ICON_SCAN_IDLE(); }              // the try failed: the icon is "idle" again (it stayed on "connecting")
+  scannerConnected = ok;                  // set BEFORE scannerConnecting goes false: loop() never sees "idle" in between
+  scannerLastResult = ok ? 1 : 2;
 
   Serial.printf("Scanner connect %s (free heap: %u bytes)\n",
                 ok ? "succeeded" : "failed", ESP.getFreeHeap());
@@ -1092,6 +1417,7 @@ void connectScanner() {
     delay(100);
     BLEDevice::startAdvertising();
   }
+  return ok;
 }
 
 // -----------------------------------------------------------
@@ -1358,7 +1684,6 @@ void setup() {
   Serial.printf("Sketch size: %u bytes\n", ESP.getSketchSize());
   Serial.printf("Free sketch space: %u bytes\n", ESP.getFreeSketchSpace());
   Serial.println("================================");
-  startNetDebug();
 
   setupTaskWatchdog(OTA_WDT_TIMEOUT_S);
 
@@ -1406,14 +1731,10 @@ void setup() {
     delay(200);
     WiFi.begin(ssid.c_str(), password.c_str());
 
-    Serial.println("[NET] setup: connecting to '" + ssid + "'");
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 30) {
       delay(500); attempts++;
     }
-    Serial.printf("[NET] setup: wifi status %d after %d tries\n", (int)WiFi.status(), attempts);
-  } else {
-    Serial.println("[NET] setup: NO WiFi saved - set it from the Bluetooth app (SET_WIFI)");
   }
 
   if (WiFi.status() != WL_CONNECTED) {
@@ -1453,14 +1774,14 @@ void setup() {
   maxthermo = new Adafruit_MAX31865(MAX31856_CS, vspi);
 
   if (!maxthermo->begin(MAX31865_2WIRE)) {
-    Serial.println("MAX31856 NOT FOUND! (setup stops here: no loop(), no /data)");
+    Serial.println("MAX31856 NOT FOUND!");
     while (1);
   }
 
   tft.fillScreen(TFT_WHITE);
   tft.fillRect(0, 35, 320, 220, TFT_BLACK);
   tft.pushImage(180, 7, 140, 21, epd_bitmap_allArray[0]);
-  ICON_SCAN_IDLE();
+  drawScannerIcon();
   tft.setTouch(calData);
   heaterTicker.attach(0.5, handleHeaterBackground);
 
@@ -1481,7 +1802,6 @@ void setup() {
   // ---------------- START BLE (replaces WebServer.begin()) ----------------
   startBLEProvisioning();
   delay(300); // let the BLE stack fully settle before we hit it with a Classic BT connect
-  Serial.println("[NET] setup: done, loop() starts");
 
   // The barcode scanner does NOT start here any more: it connects when the scanner icon on the TFT is touched
   // (touch handler of page 0 in loop()). WiFi, BLE and the cloud telemetry start as before.
@@ -1494,7 +1814,6 @@ void setup() {
 
 void loop() {
   unsigned long currentMillis = millis();
-  lastLoopAt = currentMillis;
   unsigned long page2StartTime = 0;
   bool page2TimerStarted = false;
   esp_task_wdt_reset();
@@ -1531,14 +1850,33 @@ void loop() {
   // with the rest of the WebServer/captive-portal code).
 
   // The phone gave the scanner back (GET /scanner_handback): take it again.
-  if (scannerReconnectPending && !scannerConnected && btMacString.length() >= 17) {
+  if (scannerReconnectPending && !scannerConnected && !scannerConnecting && btMacString.length() >= 17) {
     scannerReconnectPending = false;
     lastReconnect = millis();
-    ICON_SCAN_ACTIVE();
-    connectScanner();
+    startScannerConnect();
   }
 
-  if (scannerConnected && !SerialBT.connected()) { ICON_SCAN_IDLE(); Serial.println("Scanner disconnected"); scannerConnected = false; }
+  if (scannerConnected && !scannerConnecting && !SerialBT.connected()) { Serial.println("Scanner disconnected"); scannerConnected = false; }
+
+  // "Match-O mode" from the app: the second command, 2 s after the first one
+  if (scannerModeStep2At != 0 && (long)(millis() - scannerModeStep2At) >= 0) {
+    scannerModeStep2At = 0;
+    if (scannerConnected) SerialBT.print("AT+MODE=1");
+  }
+
+  // scanner state changed (touch, app, BLE app, link lost): new icon + a line in the activity log
+  {
+    static int8_t shownScannerState = -1;              // 0 idle, 1 connecting, 2 connected
+    int8_t st = scannerConnected ? 2 : (scannerConnecting ? 1 : 0);
+    if (st != shownScannerState) {
+      if (st == 2) logActivity("Barcode scanner connected");
+      else if (st == 1) logActivity("Connecting barcode scanner...");
+      else if (shownScannerState == 2) logActivity("Barcode scanner disconnected");
+      else if (shownScannerState == 1) logActivity("Barcode scanner: connect failed");
+      shownScannerState = st;
+      if (page == 0 || page == 4) drawScannerIcon();
+    }
+  }
   if (scannerConnected)
   {
       while (SerialBT.available())
@@ -1558,9 +1896,13 @@ void loop() {
                   // of the normal decode pipeline below.
                   if (parseScannerBatteryLine(barcode))
                   {
+                      logActivity("Scanner battery " + String(scannerBatteryPercent) + "%");
                       barcode = "";
                       continue;
                   }
+
+                  // every real barcode goes into the scan list of the app (GET /scans)
+                  uint32_t scanId = addScan(barcode, barcode.endsWith("_pid"));
 
                   // 1. Check if it is a Patient ID barcode
                   if (barcode.endsWith("_pid"))
@@ -1578,6 +1920,8 @@ void loop() {
                           HTTPClient http;
                           // Use HTTP instead of HTTPS to avoid SSL/TLS handshake failures
                           if (http.begin("http://apssensors.com/match_maker/api.php")) {
+                              http.setConnectTimeout(3000);
+                              http.setTimeout(5000);
                               http.addHeader("Content-Type", "application/x-www-form-urlencoded");
                               http.addHeader("X-Api-Key", "YOUR_SECRET_API_KEY_123");
 
@@ -1603,6 +1947,7 @@ void loop() {
                                           localMatchMode = true;
                                       } else {
                                           expectedTank = ""; expectedCanister = ""; expectedGoblet = "";
+                                          localMatchMode = false;
                                       }
                                   } else {
                                       displayMaleName = "Not Found";
@@ -1622,6 +1967,8 @@ void loop() {
                           displayMaleName = "No WiFi";
                       }
                       checked = 0;
+                      setScanResult(scanId, displayMaleName);
+                      logActivity("Patient " + queryId + ": " + displayMaleName);
                   }
                   // 2. Check if we are locally matching hardware
                   else if (localMatchMode)
@@ -1630,6 +1977,12 @@ void loop() {
                       else if (barcode == expectedCanister) displayMatchedCol = "Canister";
                       else if (barcode == expectedGoblet) displayMatchedCol = "Goblet";
                       else displayMatchedCol = "Unmatched";
+                      setScanResult(scanId, displayMatchedCol);
+                      logActivity("Sample " + barcode + ": " + displayMatchedCol);
+                  }
+                  else
+                  {
+                      logActivity("Barcode " + barcode);
                   }
 
                   // 3. Draw the Display
@@ -1668,7 +2021,7 @@ void loop() {
           tft.fillScreen(TFT_WHITE);
           tft.fillRect(0, 35, 320, 220, TFT_BLACK);
           tft.pushImage(180, 7, 140, 21, epd_bitmap_allArray[0]);
-          ICON_SCAN_IDLE();
+          drawScannerIcon();
       }
   }
   // --- 1. SERIAL JSON LISTENER (RFID HANDLING) ---
@@ -1684,7 +2037,9 @@ void loop() {
       if (!error) {
         if (doc.containsKey("rfid1") && witnessState == 0) {
           rfid_1_val = doc["rfid1"].as<String>();
+          rfid_2_val = "";
           witnessState = 1;
+          logActivity("RFID tag 1: " + rfid_1_val);
           page = 3;
           showWitnessResults = false;
 
@@ -1696,6 +2051,7 @@ void loop() {
         else if (doc.containsKey("rfid2") && witnessState == 1) {
           rfid_2_val = doc["rfid2"].as<String>();
           witnessState = 2;
+          logActivity("RFID tag 2: " + rfid_2_val);
           tft.pushImage(160, 60, 120, 120, epd_bitmap_allArray5[0]);
 
           if (WiFi.status() == WL_CONNECTED) {
@@ -1713,8 +2069,30 @@ void loop() {
                 String payload = http.getString();
                 Serial.println("Payload received:");
                 Serial.println(payload);
-              StaticJsonDocument<512> responseDoc;
-              deserializeJson(responseDoc, payload);
+              StaticJsonDocument<1024> responseDoc;
+              DeserializationError rErr = deserializeJson(responseDoc, payload);
+
+              // the result for the app (GET /rfid): a new witnessSeq opens the MATCH / MISMATCH popup
+              if (!rErr) {
+                witnessResult      = (responseDoc["status"] == "match") ? "match" : "mismatch";
+                witnessCode        = jsonText(responseDoc["patient_code"]);
+                witnessProcess     = jsonText(responseDoc["process"]);
+                witnessStage       = jsonText(responseDoc["stage"]);
+                witnessProcessFull = jsonText(responseDoc["process_full"]);
+                witnessMessage     = jsonText(responseDoc["message"]);
+                witnessMale        = jsonText(responseDoc["male_name"]);
+                witnessMaleAge     = jsonText(responseDoc["male_age"]);
+                witnessMaleBlood   = jsonText(responseDoc["male_blood"]);
+                witnessFemale      = jsonText(responseDoc["female_name"]);
+                witnessFemaleAge   = jsonText(responseDoc["female_age"]);
+                witnessFemaleBlood = jsonText(responseDoc["female_blood"]);
+                witnessSeq++;
+                witnessAt = millis();
+                if (witnessResult == "match") logActivity("RFID witness: MATCH " + witnessCode);
+                else logActivity("RFID witness: MISMATCH");
+              } else {
+                logActivity("RFID witness: bad answer from server");
+              }
 
               if(responseDoc["status"] == "match"){
               Serial2.println("{\"status\":\"match\"}");
@@ -1752,8 +2130,11 @@ void loop() {
             else {
               // This tells you WHY it failed (e.g., connection refused, timeout)
               Serial.printf("HTTP GET failed, error: %s\n", http.errorToString(httpCode).c_str());
+              logActivity("RFID check failed: " + http.errorToString(httpCode));
             }
             http.end();
+          } else {
+            logActivity("RFID check: no WiFi");
           }
           witnessState = 0;
         }
@@ -1786,7 +2167,7 @@ void loop() {
       tft.fillScreen(TFT_WHITE);
       tft.fillRect(0, 35, 320, 220, TFT_BLACK);
       tft.pushImage(180, 7, 140, 21, epd_bitmap_allArray[0]);
-      ICON_SCAN_IDLE();
+      drawScannerIcon();
     }
   }
 
@@ -1825,7 +2206,7 @@ void loop() {
             tft.fillScreen(TFT_WHITE);
             tft.fillRect(0, 35, 320, 220, TFT_BLACK);
             tft.pushImage(180, 7, 140, 21, epd_bitmap_allArray[0]);
-            ICON_SCAN_IDLE();
+            drawScannerIcon();
             page = 0;
           }
         }
@@ -1834,7 +2215,14 @@ void loop() {
     else if (page == 0) {
       if(x < 70 && x > 40 && y < 210 && y > 180) {page = 1;}
       if(x < 180 && x > 160 && y < 45 && y > 25){
-        if (!scannerConnected && millis() - lastReconnect > 3000){ ICON_SCAN_ACTIVE(); lastReconnect = millis(); connectScanner(); }
+        // touch on the scanner icon: connect the barcode scanner (in the background, the screen keeps running).
+        // It also takes the scanner back from the Android screen.
+        if (!scannerConnected && !scannerConnecting && millis() - lastReconnect > 3000) {
+          lastReconnect = millis();
+          scannerHeldByScreen = false;
+          scannerReconnectPending = false;
+          startScannerConnect();
+        }
       }
     }
     else if (page == 2) {
@@ -1850,6 +2238,7 @@ void loop() {
         tft.fillScreen(TFT_WHITE);
         tft.fillRect(0, 35, 320, 220, TFT_BLACK);
         tft.pushImage(180, 7, 140, 21, epd_bitmap_allArray[0]);
+        drawScannerIcon();
       }
     }
   }
@@ -1966,6 +2355,7 @@ if (page == 2)
     tft.fillScreen(TFT_WHITE);
     tft.fillRect(0, 35, 320, 220, TFT_BLACK);
     tft.pushImage(180, 7, 140, 21, epd_bitmap_allArray[0]);
+    drawScannerIcon();
   }
 }
 }
