@@ -1418,14 +1418,28 @@ bool connectScannerBlocking() {
     delay(100); // let the BT stack settle before starting the SPP connect
   }
 
+  // POWER: the Bluetooth page (connect) draws its biggest current peak. Together with
+  // WiFi sending at full power and the heater switching, a weak supply collapses and the
+  // ESP32 restarts (rst:0x1 POWERON_RESET). During the connect: heater off, WiFi at low
+  // transmit power, and loop() stops answering the app (see scannerConnecting in loop()).
+  pauseHeaterForOTA();
+  digitalWrite(HEATER_PIN, LOW);
+  wifi_power_t oldTxPower = WiFi.getTxPower();
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+  delay(50);
+
   // 1st try: the SPP channel is looked up on the scanner (SDP).
   // 2nd try: channel 1 directly - some scanners do not answer the lookup but accept channel 1.
   bool ok = SerialBT.connect(scannerAddress);
   if (!ok) {
     Serial.println("Scanner connect: no answer on the SPP lookup, trying channel 1");
-    delay(500);
+    delay(1000);                          // let the supply recover between the two tries
     ok = SerialBT.connect(scannerAddress, 1);
   }
+
+  WiFi.setTxPower(oldTxPower);
+  resumeHeaterAfterOTA();
+
   scannerConnected = ok;                  // set BEFORE scannerConnecting goes false: loop() never sees "idle" in between
   scannerLastResult = ok ? 1 : 2;
 
@@ -1846,7 +1860,8 @@ void loop() {
   if (!bleFirmwareUpdating && !netFirmwareUpdating) {
     maintainNetwork();
   }
-  if (httpStarted && !bleFirmwareUpdating && !netFirmwareUpdating) {
+  // not while the scanner connects: no WiFi answers during the Bluetooth current peak (the app waits a few seconds)
+  if (httpStarted && !bleFirmwareUpdating && !netFirmwareUpdating && !scannerConnecting) {
     httpServer.handleClient();
   }
 
