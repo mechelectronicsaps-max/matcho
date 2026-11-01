@@ -2,6 +2,7 @@
 import { $, $$, api, esc, money, num, toast, modal, badge, ago, art, formData, downloadCsv, downloadAuthed, dt, getToken } from './common.js';
 import { startPanel, head, kpi } from './panel.js';
 import { openOrder } from './orders-ui.js';
+import { mountModel3d } from './model3d.js';
 import { LABEL_SIZES, printProductLabels, printBoxLabels, printJobLabel } from './labels.js';
 import { scanWithCamera } from './scanner.js';
 
@@ -390,13 +391,17 @@ async function serviceJob(id, reload) {
   const m = modal(`<div class="row between"><div><h2 style="margin:0">${SVC_ICON[r.service] || ''} ${esc(r.req_no)}</h2><div class="small muted">${esc(r.title)} · ${dt(r.created_at)}</div></div><span class="badge ${SVC_COLOR[r.status]}">${SVC_LABEL[r.status]}</span></div>
     <div class="grid g2" style="margin-top:12px">
       <div class="card flat"><b>Customer</b><div>${esc(r.name)} · <a class="link" href="tel:${esc(r.phone)}">${esc(r.phone)}</a></div>${r.email ? `<div class="small muted">${esc(r.email)}</div>` : ''}${r.notes ? `<div class="small" style="margin-top:6px">📝 ${esc(r.notes)}</div>` : ''}</div>
-      <div class="card flat"><b>Specification</b><div class="small">Quantity: ${r.quantity}<br>${Object.entries(r.specs).filter(([k]) => k !== 'gerber').map(([k, v]) => `${esc(k.replace(/_/g, ' '))}: <b>${esc(typeof v === 'boolean' ? (v ? 'yes' : 'no') : v)}</b>`).join('<br>')}</div></div>
+      <div class="card flat"><b>Specification</b><div class="small">Quantity: ${r.quantity}<br>${Object.entries(r.specs).filter(([k]) => k !== 'gerber' && k !== 'model').map(([k, v]) => `${esc(k.replace(/_/g, ' '))}: <b>${esc(typeof v === 'boolean' ? (v ? 'yes' : 'no') : v)}</b>`).join('<br>')}</div></div>
     </div>
     <div class="card flat" style="margin-top:12px"><b>Estimate shown to customer</b>${r.estimate_lines.map((l) => `<div class="row between small"><span>${esc(l.label)}</span><span>${money(l.amount, 2)}</span></div>`).join('')}<div class="row between"><b>Total incl. GST</b><b>${money(r.estimate, 2)}</b></div></div>
     ${r.specs.gerber ? `<div class="card flat" style="margin-top:12px"><div class="row between"><b>Gerber view</b><div class="row"><button type="button" class="chip on" data-gs="top">Top</button><button type="button" class="chip" data-gs="bottom">Bottom</button></div></div>
       <div style="background:#0b1220;border-radius:12px;padding:14px;margin-top:8px;display:grid;place-items:center;min-height:200px"><img id="gimg" alt="Rendered PCB" style="max-width:100%;max-height:360px"></div>
       <div class="small" style="margin-top:6px">Detected: <b>${r.specs.gerber.width_mm} × ${r.specs.gerber.height_mm} mm</b>, ${r.specs.gerber.layers} layers, ${r.specs.gerber.drill_hits} holes, ${r.specs.gerber.files} Gerber files${(r.specs.width_mm !== r.specs.gerber.width_mm || r.specs.height_mm !== r.specs.gerber.height_mm || r.specs.layers !== r.specs.gerber.layers) ? ' — <b style="color:var(--amber)">differs from the ordered spec, check before quoting</b>' : ''}</div>
       ${(r.specs.gerber.warnings || []).map((w) => `<div class="small" style="color:var(--amber)">⚠ ${esc(w)}</div>`).join('')}</div>` : ''}
+    ${r.specs.model ? `<div class="card flat" style="margin-top:12px"><div class="row between"><b>3D model</b><button type="button" class="btn sm" id="m3load">🧊 Show 3D view</button></div>
+      <div class="small" style="margin-top:4px">${esc(r.specs.model.file)}: <b>${r.specs.model.size_mm.join(' × ')} mm</b> · ${r.specs.model.volume_cm3} cm³ · surface ${r.specs.model.area_cm2} cm² · ${Number(r.specs.model.triangles).toLocaleString('en-IN')} triangles · ${r.specs.model.closed === false ? '<b style="color:var(--amber)">not watertight — repair before printing</b>' : 'watertight'}</div>
+      ${(r.specs.model.warnings || []).map((w) => `<div class="small" style="color:var(--amber)">⚠ ${esc(w)}</div>`).join('')}
+      <div id="m3s" class="m3-stage hidden" style="margin-top:8px;height:320px"></div></div>` : ''}
     ${r.files.length ? `<div class="card flat" style="margin-top:12px"><b>Files</b>${r.files.map((f, i) => `<div class="row between small"><span>📎 ${esc(f.name)} <span class="muted">(${(f.size / 1048576).toFixed(2)} MB)</span></span><button class="btn sm" data-f="${i}">Download</button></div>`).join('')}</div>` : ''}
     <form class="form two" id="qf" style="margin-top:12px"><label class="f">Final price ₹ incl. GST<input name="quoted_price" type="number" step="0.01" value="${r.quoted_price ?? Math.round(r.estimate)}"></label>
       <label class="f">Lead time (days)<input name="lead_days" type="number" value="${r.lead_days ?? ''}"></label>
@@ -412,6 +417,10 @@ async function serviceJob(id, reload) {
     };
     $$('[data-gs]', m.el).forEach((b) => { b.onclick = () => showSide(b.dataset.gs); }); showSide('top');
   }
+  if (r.specs.model) $('#m3load', m.el).onclick = async (e) => {
+    const b = e.currentTarget; b.disabled = true; b.innerHTML = '<span class="spinner"></span> Loading…';
+    try { const d = await api(`${B}/services/${r.id}/model`); $('#m3s', m.el).classList.remove('hidden'); await mountModel3d($('#m3s', m.el), d.mesh, { colour: r.specs.colour }); b.remove(); } catch (err) { toast(err.message, 'err'); b.disabled = false; b.textContent = '🧊 Show 3D view'; }
+  };
   $$('[data-f]', m.el).forEach((b) => { b.onclick = () => downloadAuthed(`${B}/services/${r.id}/files/${b.dataset.f}`, r.files[b.dataset.f].name).catch((e) => toast(e.message, 'err')); });
   const send = async (status) => {
     try {

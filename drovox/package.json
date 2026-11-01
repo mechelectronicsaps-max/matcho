@@ -23,6 +23,7 @@
     "express": "^5.3.0",
     "html5-qrcode": "^2.3.8",
     "jsbarcode": "^3.12.3",
+    "occt-import-js": "^0.0.23",
     "pcb-stackup": "^4.2.8",
     "qrcode-generator": "^2.0.4",
     "three": "^0.170.0",

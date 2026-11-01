@@ -2,19 +2,20 @@
 // acrylic cutting and battery packs. Gives an instant estimate from editable rates
 // (Master → Settings → Services); staff then send the final quote after checking the files.
 import { getSetting, round2 } from '../db.js';
+import { TECH, FINISHES, I3D_MATERIALS, FDM_MATERIALS, FDM_BUILD, fits } from './print-materials.js';
 
 export const SERVICES = {
   industrial3d: {
     title: 'Industrial 3D Printing', short: 'Industrial 3D Print', icon: '🏭', lead: '4–7 days', order: 1,
-    blurb: 'Resin (SLA) and nylon (SLS / MJF) parts with fine detail, smooth surfaces and engineering strength — for prototypes, jigs, enclosures and short production runs.',
-    files: ['stl', '3mf', 'obj', 'step', 'stp', 'zip'],
-    materials: ['Standard resin (SLA) — smooth, fine detail', 'Tough resin (SLA) — impact resistant', 'Clear resin (SLA) — transparent', 'Nylon PA12 (SLS) — strong, functional', 'Nylon PA12 (MJF) — production grade'],
+    blurb: 'Resin (SLA, multi-jet), nylon (SLS / MJF) and metal (SLM, binder jet) parts with fine detail and engineering strength — upload your model for an instant price.',
+    files: ['stl', 'step', 'stp', '3mf', 'obj'], model: true,
+    materials: ['Resin (SLA): standard, black, tough, clear, high-temp', 'Nylon PA12 / PA11 (MJF), PA12 and glass-filled (SLS)', 'Metal (SLM): stainless 316L, aluminium, titanium', 'Multi-jet resin (WJP) incl. full colour', 'Binder-jet stainless steel (BJ)'],
     features: ['Layer height down to 0.05 mm', 'Build volume up to 300 × 300 × 300 mm', 'Sanding, priming and painting on request', 'Engineering review of every file before printing'],
   },
   print3d: {
     title: 'Online FDM 3D Printing', short: '3D Printing', icon: '🖨️', lead: '2–4 days', order: 2,
-    blurb: 'Affordable FDM printing in PLA, PETG, ABS and TPU for school projects, robot parts, enclosures and prototypes. Upload your file and get an instant price.',
-    files: ['stl', '3mf', 'obj', 'step', 'stp', 'zip'],
+    blurb: 'Affordable FDM printing in PLA, PETG, ABS and TPU for school projects, robot parts, enclosures and prototypes. Upload your model and get an instant price.',
+    files: ['stl', 'step', 'stp', '3mf', 'obj'], model: true,
     materials: ['PLA — easy, many colours', 'PETG — tough, heat resistant', 'ABS — strong, sandable', 'TPU — flexible / rubber-like'],
     features: ['Layer heights 0.12 / 0.2 / 0.28 mm', 'Infill 5–100%', 'Build volume up to 250 × 250 × 250 mm', 'Same-week delivery across India'],
   },
@@ -51,6 +52,12 @@ export const SERVICES = {
 };
 export const SERVICE_STATUS = ['new', 'quoted', 'approved', 'in_production', 'ready', 'delivered', 'cancelled'];
 
+function sizeCheck(raw, build, specs, info) {
+  const size = String(raw.size_mm || '').split(/[x×,\s]+/).map(Number).filter((v) => v > 0);
+  if (size.length !== 3) return;
+  specs.size_mm = size.map((v) => Math.round(v * 100) / 100).join(' × ');
+  if (!fits(size, build)) info.note = `The part (${specs.size_mm} mm) is larger than the ${build.join(' × ')} mm build volume — we will split it or quote separately.`;
+}
 const num = (v, def = 0) => (Number.isFinite(Number(v)) ? Number(v) : def);
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 class SpecError extends Error { constructor(m) { super(m); this.status = 400; } }
@@ -65,7 +72,6 @@ const SHEET = {
   laser: { 'acr3': 'acrylic_3mm_cm2', 'acr2': 'acrylic_2mm_cm2', 'acr5': 'acrylic_5mm_cm2', 'acr8': 'acrylic_8mm_cm2', 'mdf3': 'mdf_3mm_cm2', 'mdf6': 'mdf_6mm_cm2', 'ply4': 'ply_4mm_cm2', 'cardboard': 'cardboard_cm2', 'leather': 'leather_cm2', 'eva': 'eva_foam_cm2' },
 };
 const SHEET_LABEL = { acr2: 'Acrylic 2 mm', acr3: 'Acrylic 3 mm', acr5: 'Acrylic 5 mm', acr8: 'Acrylic 8 mm', mdf3: 'MDF 3 mm', mdf6: 'MDF 6 mm', ply4: 'Plywood 4 mm', cardboard: 'Cardboard 3 mm', leather: 'Leather', eva: 'EVA foam' };
-const RESIN = { sla_standard: ['Standard resin (SLA)', 'sla_standard_per_cm3'], sla_tough: ['Tough resin (SLA)', 'sla_tough_per_cm3'], sla_clear: ['Clear resin (SLA)', 'sla_clear_per_cm3'], sls_nylon: ['Nylon PA12 (SLS)', 'sls_nylon_per_cm3'], mjf_nylon: ['Nylon PA12 (MJF)', 'mjf_nylon_per_cm3'] };
 const METAL = { ms: ['Mild steel', 'ms_cm2_mm', [0.8, 1, 1.2, 1.5, 2, 3, 4, 5, 6]], ss: ['Stainless steel SS304', 'ss_cm2_mm', [0.5, 0.8, 1, 1.2, 1.5, 2, 3, 4]], al: ['Aluminium', 'al_cm2_mm', [0.8, 1, 1.5, 2, 3, 4]], brass: ['Brass', 'brass_cm2_mm', [0.5, 0.8, 1, 1.5, 2]], gi: ['Galvanised iron', 'gi_cm2_mm', [0.5, 0.8, 1, 1.2, 1.5, 2]] };
 
 /**
@@ -82,13 +88,24 @@ export function estimate(service, raw = {}) {
 
   if (service === 'print3d') {
     const material = ['pla', 'petg', 'abs', 'tpu', 'resin'].includes(raw.material) ? raw.material : 'pla';
-    const grams = clamp(num(raw.grams, 0), 1, 20000);
-    if (!(num(raw.grams) > 0)) throw new SpecError('Enter the estimated weight in grams (your slicer shows it), or a best guess');
     const quality = { draft: 0.9, standard: 1, fine: 1.3 }[raw.quality] ? raw.quality : 'standard';
     const qf = { draft: 0.9, standard: 1, fine: 1.3 }[quality];
     const infill = clamp(Math.round(num(raw.infill, 20)), 5, 100);
-    const colour = String(raw.colour || 'Black').slice(0, 30);
+    const mat = FDM_MATERIALS.find((m) => m.id === material);
+    let grams;
+    if (num(raw.volume_cm3) > 0) {
+      // from the uploaded model: solid walls (1.2 mm shells) + infill inside, plus ~8% for supports/purge
+      const vol = clamp(num(raw.volume_cm3), 0.01, 20000); const area = Math.max(0, num(raw.area_cm2));
+      const shell = Math.min(1, (area * 0.12) / vol);
+      grams = Math.max(1, Math.round(vol * (mat?.density || 1.24) * (shell + (1 - shell) * infill / 100) * 1.08 * 10) / 10);
+      info.volume_cm3 = vol; info.grams = grams;
+    } else {
+      grams = clamp(num(raw.grams, 0), 1, 20000);
+      if (!(num(raw.grams) > 0)) throw new SpecError('Upload your 3D model (or enter the weight in grams shown by your slicer)');
+    }
+    const colour = (mat && mat.colours.includes(raw.colour) ? raw.colour : String(raw.colour || mat?.colours[0] || 'Black')).slice(0, 30);
     specs = { material, grams, quality, infill, colour };
+    sizeCheck(raw, FDM_BUILD, specs, info);
     const perPart = grams * R[`${material}_per_g`] * qf;
     add(`${material.toUpperCase()} ${grams} g × ${qty} (${quality})`, perPart * qty);
     add('Setup & bed preparation', R.print_setup);
@@ -169,17 +186,20 @@ export function estimate(service, raw = {}) {
   }
 
   if (service === 'industrial3d') {
-    const material = RESIN[raw.material] ? raw.material : 'sla_standard';
-    const cm3 = clamp(num(raw.volume_cm3, 0), 0.1, 30000);
-    if (!(num(raw.volume_cm3) > 0)) throw new SpecError('Enter the part volume in cm³ (shown by your CAD or slicer software)');
-    const finish = ['standard', 'sanded', 'painted'].includes(raw.finish) ? raw.finish : 'standard';
-    const ff = { standard: 1, sanded: 1.25, painted: 1.6 }[finish];
-    specs = { material, volume_cm3: cm3, finish, colour: String(raw.colour || 'Natural').slice(0, 30) };
-    add(`${RESIN[material][0]} ${cm3} cm³ × ${qty}${finish !== 'standard' ? ` (${finish})` : ''}`, cm3 * R[RESIN[material][1]] * ff * qty);
-    add('Setup, supports & post-curing', R.industrial_setup);
+    const mat = I3D_MATERIALS.find((m) => m.id === raw.material) || I3D_MATERIALS[0];
+    const tech = TECH[mat.tech];
+    const cm3 = clamp(num(raw.volume_cm3, 0), 0.01, 30000);
+    if (!(num(raw.volume_cm3) > 0)) throw new SpecError('Upload your 3D model (STL, STEP, 3MF or OBJ) to calculate the price');
+    const fin = FINISHES[tech.family].find(([f]) => f === raw.finish) || FINISHES[tech.family][0];
+    const colour = mat.colours.includes(raw.colour) ? raw.colour : mat.colours[0];
+    specs = { technology: tech.name, material: mat.id, material_name: mat.name, volume_cm3: cm3, finish: fin[0], colour };
+    add(`${mat.name} ${cm3} cm³ × ${qty}${fin[0] !== 'standard' ? ` (${fin[1]})` : ''}`, cm3 * num(R[mat.rate], 0) * fin[2] * qty);
+    add(tech.family === 'metal' ? 'Setup, supports, stress relief & removal' : 'Setup, supports & post-processing', tech.family === 'metal' ? num(R.industrial_metal_setup, 1500) : R.industrial_setup);
     const sub = lines.reduce((t, l) => t + l.amount, 0);
     if (sub < R.industrial_min) add('Minimum order top-up', R.industrial_min - sub);
-    summary = `${qty} × ${RESIN[material][0]}, ${cm3} cm³, ${finish} finish`;
+    sizeCheck(raw, tech.build, specs, info);
+    if (tech.family === 'metal') lead = '10–15 working days';
+    summary = `${qty} × ${mat.name} (${tech.name}), ${cm3} cm³, ${fin[1]}, ${colour}`;
   }
 
   if (service === 'metal_laser') {
@@ -235,5 +255,9 @@ export function estimate(service, raw = {}) {
 export function publicCatalog() {
   const R = getSetting('services');
   const services = Object.entries(SERVICES).filter(([, s]) => !s.legacy).map(([id, s]) => ({ id, ...s })).sort((a, b) => a.order - b.order);
-  return { enabled: !!R.enabled, gst_rate: R.gst_rate, services };
+  const print = {
+    techs: Object.entries(TECH).map(([id, t]) => ({ id, ...t })), finishes: FINISHES,
+    industrial: I3D_MATERIALS, fdm: FDM_MATERIALS.map(({ rate, ...m }) => m), fdm_build: FDM_BUILD,
+  };
+  return { enabled: !!R.enabled, gst_rate: R.gst_rate, services, print };
 }

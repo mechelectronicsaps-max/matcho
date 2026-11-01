@@ -43,16 +43,20 @@ test('service request with file → quote → customer approves → production �
   const tok = await login('demo@drovox.in', 'demo123');
   const bad = await api('POST', '/api/services/requests', { service: 'print3d', grams: 40, name: 'Demo', phone: '9876543210', files: [{ name: 'virus.exe', data: 'aGk=' }] }, tok);
   assert.equal(bad.status, 400);
-  const stl = Buffer.from('solid test\nendsolid test\n').toString('base64');
+  const stl = Buffer.from(boxStl(20, 10, 5)).toString('base64');
+  assert.equal((await api('POST', '/api/services/requests', { service: 'print3d', grams: 40, name: 'Demo', phone: '9876543210' }, tok)).status, 400, 'a model is required');
   const r = await api('POST', '/api/services/requests', { service: 'print3d', material: 'petg', grams: 40, quantity: 3, name: 'Demo Maker', phone: '9876543210', notes: 'Bracket', files: [{ name: 'bracket.stl', data: stl }] }, tok);
   assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.estimate.specs.model.volume_cm3, 1);
+  assert.deepEqual(r.data.estimate.specs.model.size_mm, [20, 10, 5]);
+  assert.notEqual(r.data.estimate.specs.grams, 40, 'grams come from the model, not the browser');
   assert.match(r.data.req_no, /^SR\d{7}$/);
   const st = await login('stockist@drovox.in', 'stock123');
   const list = (await api('GET', '/api/stock/services?status=new', null, st)).data;
   const job = list.rows.find((x) => x.req_no === r.data.req_no);
   assert.equal(job.files.length, 1);
   const file = await api('GET', `/api/stock/services/${job.id}/files/0`, null, st);
-  assert.match(file.data, /solid test/);
+  assert.match(file.data, /solid box/);
   assert.equal((await api('PUT', `/api/stock/services/${job.id}`, { status: 'quoted', quoted_price: '' }, st)).status, 400); // a quote needs a price
 });
 
@@ -149,4 +153,31 @@ test('loose, unordered outline segments are joined into one closed board shape',
   const open = fixOutline(svg.replace('M 0 0 0 30000', ''), 50);
   assert.match(open.note, /not a closed shape/);
   assert.match(open.apply(svg), /<rect x="0" y="0" width="50000" height="30000"\/>/);
+});
+
+function boxStl(x, y, z) {
+  const V = [[0, 0, 0], [x, 0, 0], [x, y, 0], [0, y, 0], [0, 0, z], [x, 0, z], [x, y, z], [0, y, z]];
+  const F = [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]];
+  return `solid box\n${F.map((f) => ` facet normal 0 0 0\n  outer loop\n${f.map((i) => `   vertex ${V[i].join(' ')}\n`).join('')}  endloop\n endfacet\n`).join('')}endsolid box\n`;
+}
+
+test('3D model upload: STL / 3MF / STEP measured; industrial price from volume; ₹ by technology', async () => {
+  const stl = Buffer.from(boxStl(40, 20, 10)).toString('base64');
+  const m = (await api('POST', '/api/services/model', { name: 'part.stl', data: stl })).data;
+  assert.equal(m.volume_cm3, 8); assert.equal(m.area_cm2, 28); assert.deepEqual(m.size_mm, [40, 20, 10]); assert.equal(m.closed, true);
+  assert.equal(Buffer.from(m.mesh, 'base64').length, 12 * 9 * 4);
+  const step = fs.readFileSync(new URL('../node_modules/occt-import-js/test/testfiles/cube-10x10mm/Cube 10x10.stp', import.meta.url)).toString('base64');
+  const s = (await api('POST', '/api/services/model', { name: 'cube.step', data: step })).data;
+  assert.equal(s.volume_cm3, 1); assert.deepEqual(s.size_mm, [10, 10, 10]);
+  assert.equal((await api('POST', '/api/services/model', { name: 'x.exe', data: stl })).status, 400);
+  assert.equal((await api('POST', '/api/services/model', { name: 'bad.stl', data: Buffer.from('nonsense').toString('base64') })).status, 400);
+  const cat = (await api('GET', '/api/services')).data;
+  assert.deepEqual(cat.print.techs.map((t) => t.id), ['sla', 'mjf', 'slm', 'sls', 'wjp', 'bj']);
+  const ti = (await api('POST', '/api/services/estimate', { service: 'industrial3d', material: 'slm_ti64', volume_cm3: 8, size_mm: '40x20x10', quantity: 1 })).data;
+  assert.equal(ti.subtotal, 8 * 600 + 1500);
+  assert.equal(ti.specs.technology, 'SLM (Metal)'); assert.equal(ti.specs.size_mm, '40 × 20 × 10');
+  const big = (await api('POST', '/api/services/estimate', { service: 'industrial3d', material: 'sla_standard', volume_cm3: 8, size_mm: '400x20x10' })).data;
+  assert.match(big.info.note, /larger than/);
+  const fdm = (await api('POST', '/api/services/estimate', { service: 'print3d', material: 'pla', volume_cm3: 8, area_cm2: 28, infill: 20 })).data;
+  assert.ok(fdm.info.grams > 5 && fdm.info.grams < 10, String(fdm.info.grams));
 });

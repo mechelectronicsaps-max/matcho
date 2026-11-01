@@ -444,6 +444,8 @@ export const DEFAULT_SETTINGS = {
     assembly_per_cell: 15, pack_base: 150, battery_test_fee: 199,
     // Industrial 3D printing, per cm³ of part volume
     sla_standard_per_cm3: 18, sla_tough_per_cm3: 26, sla_clear_per_cm3: 28, sls_nylon_per_cm3: 22, mjf_nylon_per_cm3: 24, industrial_setup: 300, industrial_min: 499,
+    sla_black_per_cm3: 20, sla_hightemp_per_cm3: 40, mjf_pa11_per_cm3: 30, sls_pa12gf_per_cm3: 30, wjp_rigid_per_cm3: 45, wjp_colour_per_cm3: 60,
+    slm_ss316l_per_cm3: 250, slm_alsi10mg_per_cm3: 220, slm_ti64_per_cm3: 600, bj_ss316l_per_cm3: 120, industrial_metal_setup: 1500,
     // Metal laser cutting: material per cm²·mm, cutting per metre per mm of thickness
     ms_cm2_mm: 0.012, ss_cm2_mm: 0.045, al_cm2_mm: 0.03, brass_cm2_mm: 0.09, gi_cm2_mm: 0.015,
     metal_cut_per_m_mm: 22, metal_bend_each: 15, metal_setup: 300, metal_min: 499,

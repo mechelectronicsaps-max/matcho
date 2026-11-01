@@ -79,8 +79,7 @@ Your data lives in a single file, `drovox/data/drovox.db`. Back it up.
 ## Services (like robu.in services)
 
 Storefront → **Services** (`/#/services`) offers six services:
-- **Industrial 3D printing:** SLA standard, tough or clear resin; SLS and MJF nylon. Priced by cm³, with finishing options.
-- **Online FDM 3D printing:** PLA, PETG, ABS and TPU, priced by the gram.
+- **Industrial 3D printing and online FDM 3D printing:** see *3D printing online ordering* below.
 - **Metal laser cutting:** MS, SS304, aluminium, brass and GI. Only the thicknesses each metal supports are offered, and bending is optional.
 - **Customized lithium-ion battery packs.**
 - **Non-metal laser cutting:** acrylic 2–8 mm in colours, MDF, plywood, cardboard, leather and EVA foam.
@@ -97,6 +96,14 @@ Each service page lists its materials and capabilities. A battery pack can be bu
   - Move the job to Approved → In production → Ready → Delivered. The customer gets a WhatsApp message at each step.
 - **Battery packs** are priced with BIS-registered cells bought in India.
 - **Big packs:** packs over 100 Wh are flagged as surface shipping only.
+
+### 3D printing online ordering with built-in 3D viewer (robu.in style)
+- **Upload the model first** (STL, STEP/STP, 3MF or OBJ, up to 60 MB; drag-and-drop works). The server reads it — STEP is triangulated with OpenCascade — and the page shows a **rotatable 3D view** in the chosen colour, with size (X × Y × Z), volume, surface area, triangle count and a watertight check.
+- **Industrial:** choose the 3D technology — SLA (resin), MJF (nylon), SLM (metal), SLS (nylon), WJP (multi-jet resin), BJ (binder-jet metal) — then the material. Each material shows key features, heat deflection, tolerance, applications and notes, plus its colours and finishes. Price = volume × material rate × finish + setup (metal has its own setup charge and 10–15 day lead time).
+- **FDM:** PLA, PETG, ABS or TPU with colour, quality and infill. Grams are worked out from the model's volume and surface (1.2 mm walls + infill + ~8% supports).
+- The price shows "Upload a model to see the price" until a model is uploaded. Parts bigger than the machine's build volume are flagged. The quantity has − / + buttons.
+- The server measures the model again when the order is placed, so the price can't be changed in the browser. Staff see the model's numbers and a **3D view** in **Stockist panel → Service jobs**.
+- Material properties are typical values — edit them in `server/services/print-materials.js`; rates (₹/cm³, ₹/g) are in **Master → Settings → Services**.
 
 ### PCB online ordering with built-in Gerber viewer
 - **Upload Gerber ZIP first.** The server unzips it, detects each layer, measures the board outline and renders **Top / Bottom** views right on the page. Width, height and layer count are filled in automatically, with warnings (no outline, no drill file, odd layer count).

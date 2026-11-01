@@ -10,6 +10,7 @@ import { sendWhatsApp, notify } from '../services/whatsapp.js';
 import { validGstin } from '../pricing.js';
 import { scoreLead } from '../services/engine.js';
 import { analyzeGerberZip } from '../services/gerber.js';
+import { analyzeModel, MODEL_EXT } from '../services/mesh.js';
 
 const UPLOADS = path.join(path.dirname(DB_FILE), 'uploads');
 const MAX_FILE = 20 * 1024 * 1024; const MAX_FILES = 5;
@@ -39,13 +40,20 @@ extras.post('/services/pcb/gerber', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/** 3D model viewer: read an STL / STEP / 3MF / OBJ → volume, area, size and a mesh for the browser. */
+extras.post('/services/model', async (req, res, next) => {
+  try {
+    const buf = Buffer.from(String(req.body?.data || '').replace(/^data:[^,]*,/, ''), 'base64');
+    res.json(await analyzeModel(buf, String(req.body?.name || '')));
+  } catch (e) { next(e); }
+});
+
 extras.post('/services/requests', async (req, res, next) => {
   try {
     if (!getSetting('services').enabled) return res.status(400).json({ error: 'Services are not taking new requests right now' });
     const b = req.body || {};
     const name = String(b.name || req.user?.name || '').trim(); const phone = String(b.phone || req.user?.phone || '').trim();
     if (!name || phone.replace(/\D/g, '').length < 10) return res.status(400).json({ error: 'Your name and a 10-digit WhatsApp number are required' });
-    const est = estimate(b.service, b);
     const files = Array.isArray(b.files) ? b.files.slice(0, MAX_FILES + 1) : [];
     if (files.length > MAX_FILES) return res.status(400).json({ error: `Upload at most ${MAX_FILES} files (zip them if you have more)` });
     const allowed = SERVICES[b.service].files;
@@ -55,9 +63,20 @@ extras.post('/services/requests', async (req, res, next) => {
       if (!allowed.includes(ext)) throw Object.assign(new Error(`${base}: allowed file types are ${allowed.join(', ')}`), { status: 400 });
       const buf = Buffer.from(String(f.data || '').replace(/^data:[^,]*,/, ''), 'base64');
       if (!buf.length) throw Object.assign(new Error(`${base} is empty`), { status: 400 });
-      if (buf.length > MAX_FILE) throw Object.assign(new Error(`${base} is larger than 20 MB`), { status: 400 });
+      const lim = SERVICES[b.service]?.model && MODEL_EXT.includes(ext) ? 60 * 1024 * 1024 : MAX_FILE;
+      if (buf.length > lim) throw Object.assign(new Error(`${base} is larger than ${lim / 1048576} MB`), { status: 400 });
       return { base, buf };
     });
+    // 3D printing: the model file decides volume, surface and size — measured here, not taken from the browser
+    let model = null;
+    if (SERVICES[b.service]?.model) {
+      const d = decoded.find((x) => MODEL_EXT.includes(x.base.split('.').pop().toLowerCase()));
+      if (!d) return res.status(400).json({ error: 'Upload your 3D model (STL, STEP, 3MF or OBJ) to order 3D printing' });
+      model = await analyzeModel(d.buf, d.base);
+      Object.assign(b, { volume_cm3: model.volume_cm3, area_cm2: model.area_cm2, size_mm: model.size_mm.join('x') });
+    }
+    const est = estimate(b.service, b);
+    if (model) est.specs.model = { file: decoded.find((x) => MODEL_EXT.includes(x.base.split('.').pop().toLowerCase())).base, volume_cm3: model.volume_cm3, area_cm2: model.area_cm2, size_mm: model.size_mm, triangles: model.triangles, closed: model.closed, warnings: model.warnings };
     const reqNo = newReqNo();
     const stored = [];
     if (decoded.length) {
@@ -164,6 +183,16 @@ servicesStaff.get('/:id/gerber/:side', (req, res) => {
   const p = r && path.join(UPLOADS, r.req_no, `gerber-${side}.svg`);
   if (!p || !fs.existsSync(p)) return res.status(404).json({ error: 'No board render for this order' });
   res.set({ 'Content-Type': 'image/svg+xml', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" }).send(fs.readFileSync(p));
+});
+servicesStaff.get('/:id/model', async (req, res, next) => {
+  try {
+    const r = parse(get('SELECT * FROM service_requests WHERE id = ?', req.params.id));
+    const f = r?.files.find((x) => MODEL_EXT.includes(String(x.name).split('.').pop().toLowerCase()));
+    const p = f && path.join(UPLOADS, r.req_no, path.basename(f.stored));
+    if (!p || !fs.existsSync(p)) return res.status(404).json({ error: 'No 3D model with this job' });
+    const m = await analyzeModel(fs.readFileSync(p), f.name);
+    res.json({ mesh: m.mesh, size_mm: m.size_mm, volume_cm3: m.volume_cm3 });
+  } catch (e) { next(e); }
 });
 servicesStaff.get('/:id', (req, res) => { const r = parse(get('SELECT * FROM service_requests WHERE id = ?', req.params.id)); r ? res.json(r) : res.status(404).json({ error: 'Not found' }); });
 
