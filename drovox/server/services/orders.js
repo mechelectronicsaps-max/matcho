@@ -108,11 +108,11 @@ export function createOrder(user, b) {
     const orderNo = newOrderNo();
     const addr = [a.line1, a.line2, a.city, a.pincode].filter(Boolean).join(', ');
     const r = run(`INSERT INTO orders(order_no, user_id, status, payment_method, payment_status, subtotal, discount, coupon_code, points_redeemed,
-        shipping, cod_fee, taxable, cgst, sgst, igst, total, points_earned, ship_name, ship_phone, ship_address, ship_pincode, place_of_supply, gstin, notes, source)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        shipping, cod_fee, taxable, cgst, sgst, igst, total, points_earned, ship_name, ship_phone, ship_address, ship_pincode, place_of_supply, gstin, notes, source, partner_discount)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       orderNo, user.id, 'pending_payment', pm, pm === 'cod' ? 'cod_due' : 'pending', q.subtotal, q.discount, q.coupon?.code ?? null, q.points_redeemed,
       q.shipping, q.cod_fee, q.gst.taxable, q.gst.cgst, q.gst.sgst, q.gst.igst, q.total, q.points_earned,
-      a.name.trim(), a.phone.trim(), addr, String(a.pincode), pos, b.gstin ? String(b.gstin).toUpperCase() : null, b.notes || null, b.source || 'web');
+      a.name.trim(), a.phone.trim(), addr, String(a.pincode), pos, b.gstin ? String(b.gstin).toUpperCase() : null, b.notes || null, b.source || 'web', q.partner_discount || 0);
     const orderId = Number(r.lastInsertRowid);
     for (const l of q.lines) {
       run(`INSERT INTO order_items(order_id, product_id, sku, name, hsn, qty, unit_price, gst_rate, taxable, tax, total, unit_cost) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,

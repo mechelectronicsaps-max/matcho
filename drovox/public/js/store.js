@@ -1,5 +1,6 @@
 // Drovox storefront (hash-routed single-page app).
 import { $, $$, api, esc, money, num, toast, modal, art, local, getToken, setToken, formData, badge, dt, printInvoice } from './common.js';
+import { pageServices, pagePartner, accountServices } from './services.js';
 
 const S = { cfg: null, user: null, cats: [], quoteCache: null };
 const app = $('#app');
@@ -66,7 +67,7 @@ function renderHeader() {
   $('#nav-account-lbl').textContent = S.user ? `${S.user.name.split(' ')[0]} · ${num(S.user.points)} pts` : 'Sign in';
   $('#nav-account').href = S.user ? '#/account' : '#/login';
   const path = location.hash.split('?')[0];
-  $('#catbar').innerHTML = `<a href="#/search" class="${path === '#/search' ? 'on' : ''}">All products</a>` + S.cats.filter((c) => c.count).map((c) => `<a href="#/c/${c.slug}" class="${path === '#/c/' + c.slug ? 'on' : ''}">${c.icon} ${esc(c.name)}</a>`).join('') + '<a href="#/builder">✨ AI Project Builder</a>';
+  $('#catbar').innerHTML = `<a href="#/search" class="${path === '#/search' ? 'on' : ''}">All products</a>` + S.cats.filter((c) => c.count).map((c) => `<a href="#/c/${c.slug}" class="${path === '#/c/' + c.slug ? 'on' : ''}">${c.icon} ${esc(c.name)}</a>`).join('') + '<a href="#/builder">✨ AI Project Builder</a><a href="#/services">🛠️ 3D Print · PCB · Laser · Battery</a><a href="#/partner">🤝 Become a Partner</a>';
 }
 let sugT;
 $('#q').addEventListener('input', (e) => {
@@ -195,6 +196,7 @@ async function pageProduct(slug) {
 function summaryHtml(q, { showGst = true } = {}) {
   return `<div class="summary">
     <div class="r-line"><span>Items (${q.lines.reduce((s, l) => s + l.qty, 0)})</span><span>${money(q.subtotal, 2)}</span></div>
+    ${q.partner_discount ? `<div class="r-line" style="color:var(--green)"><span>Partner discount ${q.partner_pct}%</span><span>−${money(q.partner_discount, 2)}</span></div>` : ''}
     ${q.discount ? `<div class="r-line" style="color:var(--green)"><span>Coupon ${esc(q.coupon.code)}</span><span>−${money(q.discount, 2)}</span></div>` : ''}
     ${q.points_redeemed ? `<div class="r-line" style="color:var(--green)"><span>${q.points_redeemed} points redeemed</span><span>−${money(q.points_value, 2)}</span></div>` : ''}
     <div class="r-line"><span>Shipping</span><span>${q.shipping ? money(q.shipping, 2) : '<b style="color:var(--green)">FREE</b>'}</span></div>
@@ -358,6 +360,7 @@ async function pageOrder(no, params) {
       <div class="card"><h3>Tracking</h3>${o.awb ? `<p>Shipped via <b>${esc(o.courier)}</b> · AWB <span class="code">${esc(o.awb)}</span></p>` : ''}<ul class="timeline">${o.events.map((e) => `<li><b>${esc(e.note || e.status)}</b><div class="small muted">${dt(e.created_at)}</div></li>`).join('')}</ul></div>
     </div><div class="stack"><div class="card"><h3>Payment</h3>
       <div class="r-line" style="display:flex;justify-content:space-between"><span>Subtotal</span><span>${money(o.subtotal, 2)}</span></div>
+      ${o.partner_discount ? `<div style="display:flex;justify-content:space-between;color:var(--green)"><span>Partner discount</span><span>−${money(o.partner_discount, 2)}</span></div>` : ''}
       ${o.discount ? `<div style="display:flex;justify-content:space-between;color:var(--green)"><span>Coupon ${esc(o.coupon_code)}</span><span>−${money(o.discount, 2)}</span></div>` : ''}
       ${o.points_redeemed ? `<div style="display:flex;justify-content:space-between;color:var(--green)"><span>Points</span><span>−${money(o.points_redeemed * S.cfg.loyalty.point_value, 2)}</span></div>` : ''}
       <div style="display:flex;justify-content:space-between"><span>Shipping${o.cod_fee ? ' + COD' : ''}</span><span>${money(o.shipping + o.cod_fee, 2)}</span></div>
@@ -487,12 +490,15 @@ async function pageAccount() {
         <hr class="sep">${refs.friends.length ? `<table class="t"><tbody>${refs.friends.map((f) => `<tr><td>${esc(f.name)}</td><td>${f.status === 'rewarded' ? `<span class="badge green">+${f.reward_points} pts</span>` : '<span class="badge amber">awaiting first delivery</span>'}</td></tr>`).join('')}</tbody></table>` : '<div class="small muted">No referrals yet.</div>'}</div>
       <div class="card"><h3>Points history</h3><div class="table-wrap" style="max-height:280px;overflow-y:auto"><table class="t"><tbody>${ledger.map((l) => `<tr><td>${esc({ order: 'Order delivered', redeem: 'Redeemed', signup: 'Signup bonus', referred: 'Referral bonus', referral: 'Friend’s first order', checkin: 'Daily check-in', refund: 'Refunded', return: 'Order returned', manual: 'Adjustment' }[l.reason] || l.reason)} <span class="tiny muted">${esc(l.ref || '')}</span></td><td class="r" style="color:${l.change > 0 ? 'var(--green)' : 'var(--red)'}">${l.change > 0 ? '+' : ''}${l.change}</td><td class="small muted nowrap">${dt(l.created_at, false)}</td></tr>`).join('') || '<tr><td class="muted">No activity yet</td></tr>'}</tbody></table></div></div>
     </div>
+    <div class="grid g2 section"><div class="card"><div class="row between"><h3 style="margin:0">🛠️ My service requests</h3><a class="link small" href="#/services">New request →</a></div><div id="svc" style="margin-top:10px"><span class="spinner"></span></div></div>
+      <div class="card"><h3>🤝 Partner program</h3>${u.partner_type ? `<p>You are a <b>Drovox partner</b> (${esc(u.partner_type)}). <b>${u.partner_discount}%</b> partner discount applies to every order automatically.</p>` : '<p class="small">Resellers, schools, makerspaces and integrators get a fixed discount on every order.</p><a class="btn primary sm" href="#/partner">Become a partner</a>'}</div></div>
     <div class="card section"><h3>Profile</h3><form class="form two" id="pf"><label class="f">Name<input name="name" value="${esc(u.name)}"></label><label class="f">Mobile<input name="phone" value="${esc(u.phone || '')}"></label>
       <label class="f">Company / college<input name="company" value="${esc(u.company || '')}"></label><label class="f">GSTIN<input name="gstin" value="${esc(u.gstin || '')}" maxlength="15"></label>
       <label class="f">City<input name="city" value="${esc(u.city || '')}"></label><div></div>
       <label class="f">Birthday 🎂 <span class="muted">(we'll send you a wish)</span><input name="dob" type="date" value="${esc(u.dob || '')}"></label><label class="f">Anniversary 💐 (optional)<input name="anniversary" type="date" value="${esc(u.anniversary || '')}"></label>
       <label class="check full"><input type="checkbox" name="whatsapp_opt_in" ${u.whatsapp_opt_in ? 'checked' : ''}> Send me order updates and offers on WhatsApp</label>
       <label class="f">New password (optional)<input name="password" type="password" minlength="6" autocomplete="new-password"></label><div class="full"><button class="btn primary">Save</button></div></form></div>`;
+  accountServices($('#svc'));
   $('#logout').onclick = () => { setToken(null); S.user = null; renderHeader(); location.hash = '#/'; };
   $('#copy').onclick = () => { navigator.clipboard?.writeText(link); toast('Referral link copied'); };
   $('#checkin').onclick = async () => { const r = await api('/me/checkin', { method: 'POST' }); toast(r.already ? 'Already collected today' : `+${r.points} points · ${r.streak}-day streak 🔥`); pageAccount(); };
@@ -538,6 +544,8 @@ async function route() {
       case 'track': await pageTrack(parts[1], params); break;
       case 'builder': await pageBuilder(params); break;
       case 'bulk': pageBulk(params); break;
+      case 'services': await pageServices(app, S, parts, setTitle); break;
+      case 'partner': await pagePartner(app, S, setTitle); break;
       case 'login': pageAuth('login', params); break;
       case 'register': pageAuth('register', params); break;
       case 'account': await pageAccount(); break;

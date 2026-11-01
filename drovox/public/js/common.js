@@ -21,6 +21,15 @@ export function setScope(s) { SCOPE = s; }
 export const getToken = () => store.get(tokenKey(SCOPE));
 export const setToken = (t) => (t ? store.set(tokenKey(SCOPE), t) : store.del(tokenKey(SCOPE)));
 
+/** Downloads a protected file (sends the sign-in token) and saves it with its name. */
+export async function downloadAuthed(path, filename) {
+  const t = getToken();
+  const r = await fetch('/api' + path, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+  if (!r.ok) { let m = `Download failed (${r.status})`; try { m = (await r.json()).error || m; } catch { /* binary */ } throw new Error(m); }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
 export async function api(path, { method = 'GET', body } = {}) {
   const headers = { 'X-Session': sessionId() };
   if (body !== undefined) headers['Content-Type'] = 'application/json';

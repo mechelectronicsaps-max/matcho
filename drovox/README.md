@@ -56,6 +56,35 @@ Your data lives in a single file, `drovox/data/drovox.db`. Back it up.
   - The job moves Pending → In progress → **Ready** → Delivered.
   - Marking a job **Ready** sends the customer a WhatsApp message with the balance due.
 
+## Services (like robu.in services)
+
+Storefront → **Services** (`/#/services`): **3D printing** (PLA, PETG, ABS, TPU, resin), **PCB manufacturing** (1/2/4 layers, mask colour, HASL/ENIG, stencil, assembly), **laser cutting & engraving** (MDF, plywood, cardboard), **acrylic cutting** (2–8 mm, colours) and **battery packs**. A battery pack can be built new (18650 / 21700 / LiFePO4, series × parallel, BMS, connector; the page shows voltage, Ah, Wh and weight) or an existing pack can be tested and repaired.
+- **For customers:**
+  - The page shows an instant estimate from editable rates (Master → Settings → Services).
+  - Customers can upload design files (STL, Gerber ZIP, DXF/SVG/PDF and so on; up to 5 files of 20 MB each).
+  - They get a WhatsApp confirmation, and can approve the final quote in **My Account → My service requests**.
+- **For staff, in Stockist panel → Service jobs:**
+  - Check the specification and download the files.
+  - Set the final price and lead time, then **send the quote on WhatsApp**.
+  - Move the job to Approved → In production → Ready → Delivered. The customer gets a WhatsApp message at each step.
+- **Battery packs** are priced with BIS-registered cells bought in India.
+- **Big packs:** packs over 100 Wh are flagged as surface shipping only.
+
+## Become a Partner
+
+Storefront → **Become a Partner** (`/#/partner`) is for:
+- resellers and dealers
+- schools, colleges and Atal Tinkering Labs
+- makerspaces and academies
+- integrators
+- affiliates and creators
+
+How it works:
+1. **Apply:** the customer applies from their account. Each application also creates a CRM lead.
+2. **Approve:** in Master → **Partners**, approve or reject it and set the discount. Defaults are in Settings → Partners: reseller 10%, institution 8%, makerspace 8%, integrator 7%, affiliate 5%. The partner is told on WhatsApp.
+3. **Discount:** an approved partner's discount comes off automatically at checkout, before any coupon. It shows in the cart and on the order, and the GST invoice is calculated on the reduced price.
+4. **Manage:** discounts can be changed or revoked at any time. Every decision is recorded in the audit trail.
+
 ## Customer data & greetings
 
 - Customers can save their birthday, anniversary and city in their account. Staff can add walk-in, phone or WhatsApp customers in **Master → Customers → + Add customer** (no email needed), including birthday, anniversary, notes and WhatsApp consent.

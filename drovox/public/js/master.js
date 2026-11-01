@@ -294,6 +294,32 @@ async function greetings(el, params) {
   }; });
 }
 
+// ------------------------------------------------------------------ partners
+async function partners(el) {
+  const d = await api(`${A}/partners`);
+  const pending = d.applications.filter((a) => a.status === 'pending');
+  el.innerHTML = `${head('Partner program', '<a class="btn" href="#/settings?tab=partners">⚙️ Discounts</a><a class="btn" href="/#/partner" target="_blank">Public page ↗</a>')}
+    <div class="grid g3" style="margin-bottom:16px">${kpi('Pending applications', pending.length)}${kpi('Active partners', d.partners.length)}${kpi('Partner revenue', money(d.partners.reduce((s, p) => s + p.revenue, 0)))}</div>
+    <div class="card" style="margin-bottom:16px"><h3>Applications</h3><div class="table-wrap"><table class="t"><thead><tr><th>Applicant</th><th>Type</th><th>Volume</th><th>Message</th><th>Status</th><th></th></tr></thead><tbody>
+      ${d.applications.map((a) => `<tr><td><b>${esc(a.company || a.name)}</b><div class="tiny muted">${esc(a.name)} · ${esc(a.phone)}${a.city ? ` · ${esc(a.city)}` : ''}${a.gstin ? ` · ${esc(a.gstin)}` : ''}</div></td><td class="small">${esc(d.types[a.type] || a.type)}</td>
+        <td class="small">${esc(a.monthly_volume || '')}</td><td class="small" style="max-width:320px">${esc((a.message || '').slice(0, 160))}${a.website ? `<div class="tiny">${esc(a.website)}</div>` : ''}</td>
+        <td><span class="badge ${a.status === 'approved' ? 'green' : a.status === 'rejected' ? 'red' : 'amber'}">${esc(a.status)}</span>${a.status !== 'pending' ? `<div class="tiny muted">${a.discount_pct}%</div>` : ''}</td>
+        <td class="nowrap">${a.status === 'pending' ? `<input type="number" value="${a.discount_pct}" min="0" max="50" style="width:70px" data-pct="${a.id}"> % <button class="btn sm primary" data-ok="${a.id}">Approve</button> <button class="btn sm danger" data-no="${a.id}">Reject</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No applications yet</td></tr>'}</tbody></table></div></div>
+    <div class="card"><h3>Active partners</h3><div class="table-wrap"><table class="t"><thead><tr><th>Partner</th><th>Type</th><th class="r">Orders</th><th class="r">Revenue</th><th>Discount</th><th></th></tr></thead><tbody>
+      ${d.partners.map((p) => `<tr><td><b>${esc(p.company || p.name)}</b><div class="tiny muted">${esc(p.email)} · ${esc(p.phone || '')}</div></td><td class="small">${esc(d.types[p.partner_type] || p.partner_type)}</td><td class="r">${p.orders}</td><td class="r">${money(p.revenue)}</td>
+        <td><input type="number" value="${p.partner_discount}" min="0" max="50" style="width:70px" data-disc="${p.id}"> %</td><td class="nowrap"><button class="btn sm" data-save="${p.id}">Save</button> <button class="btn sm danger" data-revoke="${p.id}">Revoke</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">No partners yet</td></tr>'}</tbody></table></div></div>`;
+  const decide = async (id, approve) => {
+    const note = approve ? '' : prompt('Reason (sent to the applicant on WhatsApp, optional):') ?? null;
+    if (note === null) return;
+    const r = await api(`${A}/partners/${id}/decision`, { method: 'POST', body: { approve, discount_pct: Number($(`[data-pct="${id}"]`).value), note } });
+    toast(`${approve ? 'Approved' : 'Rejected'}${r.whatsapp?.ok ? (r.whatsapp.simulated ? ' · WhatsApp simulated' : ' · applicant notified on WhatsApp') : ''}`); partners(el);
+  };
+  $$('[data-ok]', el).forEach((b) => { b.onclick = () => decide(b.dataset.ok, true).catch((e) => toast(e.message, 'err')); });
+  $$('[data-no]', el).forEach((b) => { b.onclick = () => decide(b.dataset.no, false).catch((e) => toast(e.message, 'err')); });
+  $$('[data-save]', el).forEach((b) => { b.onclick = async () => { await api(`${A}/partners/user/${b.dataset.save}`, { method: 'PUT', body: { discount_pct: Number($(`[data-disc="${b.dataset.save}"]`).value) } }); toast('Discount updated'); partners(el); }; });
+  $$('[data-revoke]', el).forEach((b) => { b.onclick = async () => { if (!confirm('Remove partner status and discount?')) return; await api(`${A}/partners/user/${b.dataset.revoke}`, { method: 'PUT', body: { revoke: true } }); toast('Partner revoked'); partners(el); }; });
+}
+
 // ------------------------------------------------------------------ users & roles
 async function users(el, params) {
   const role = params.get('role') || '';
@@ -354,6 +380,13 @@ const SETTINGS_UI = {
   courier: ['Courier', { provider: 'Provider (manual / shiprocket)', shiprocket_email: 'Shiprocket email', shiprocket_password: 'Shiprocket password', tracking_url: 'Tracking URL template ({awb})' }],
   loyalty: ['Loyalty & referrals', { earn_per_100: 'Points per ₹100 spent', point_value: '₹ value of 1 point', max_redeem_pct: 'Max % of order payable with points', signup_bonus: 'Signup bonus points', referrer_bonus: 'Referrer bonus (on friend\'s first delivery)', referee_bonus: 'New friend bonus', daily_checkin: 'Daily check-in points', streak_bonus_7: '7-day streak bonus' }],
   engagement: ['Engagement', { welcome_coupon: 'Welcome coupon code', exit_intent: 'Show exit-intent offer to new visitors', social_proof: 'Show real-time social proof on product pages', abandoned_cart_hours: 'Abandoned cart reminder after (hours)', abandoned_cart_coupon: 'Abandoned cart coupon', unpaid_cancel_minutes: 'Cancel unpaid online orders after (minutes)' }],
+  partners: ['Partners', { enabled: 'Accept partner applications', reseller_discount: 'Reseller / dealer discount %', institution_discount: 'School / college / ATL discount %', makerspace_discount: 'Makerspace / academy discount %', integrator_discount: 'Integrator / industrial discount %', affiliate_discount: 'Affiliate / creator discount %', max_discount: 'Maximum partner discount allowed %' }],
+  services: ['Services', { enabled: 'Accept service requests (3D print, PCB, laser, acrylic, battery)', gst_rate: 'GST % on services',
+    pla_per_g: '3D print PLA ₹/g', petg_per_g: 'PETG ₹/g', abs_per_g: 'ABS ₹/g', tpu_per_g: 'TPU ₹/g', resin_per_g: 'Resin ₹/g', print_setup: '3D print setup ₹/order', print_min: '3D print minimum order ₹',
+    pcb_setup: 'PCB setup ₹/design', pcb_1l_cm2: 'PCB 1-layer ₹/cm²', pcb_2l_cm2: 'PCB 2-layer ₹/cm²', pcb_4l_cm2: 'PCB 4-layer ₹/cm²', pcb_color_extra: 'PCB non-green mask ₹', pcb_enig_extra: 'PCB ENIG ₹', pcb_stencil: 'SMT stencil ₹', pcb_assembly_per_board: 'PCB assembly labour ₹/board',
+    acrylic_2mm_cm2: 'Acrylic 2 mm ₹/cm²', acrylic_3mm_cm2: 'Acrylic 3 mm ₹/cm²', acrylic_5mm_cm2: 'Acrylic 5 mm ₹/cm²', acrylic_8mm_cm2: 'Acrylic 8 mm ₹/cm²', mdf_3mm_cm2: 'MDF 3 mm ₹/cm²', mdf_6mm_cm2: 'MDF 6 mm ₹/cm²', ply_4mm_cm2: 'Plywood 4 mm ₹/cm²', cardboard_cm2: 'Cardboard ₹/cm²',
+    cut_per_m: 'Laser cutting ₹/metre', engrave_per_cm2: 'Engraving ₹/cm²', cut_min: 'Cutting minimum order ₹',
+    cell_18650: '18650 cell ₹ (BIS)', cell_21700: '21700 cell ₹ (BIS)', cell_lfp_32700: 'LiFePO4 32700 cell ₹', bms_base: 'BMS base ₹', bms_per_s: 'BMS ₹ per series cell', bms_per_10a: 'BMS ₹ per 10 A', assembly_per_cell: 'Spot-weld assembly ₹/cell', pack_base: 'Pack base charge ₹', battery_test_fee: 'Battery test fee ₹/pack' }],
   inventory: ['Inventory', { safety_days: 'Safety stock (days)', target_cover_days: 'Reorder to cover (days)', low_stock_default: 'Default reorder level' }],
 };
 const SELECTS = { provider: [['myrc', 'msg.myrc.in gateway'], ['meta', 'Meta WhatsApp Cloud API']] };
@@ -398,6 +431,7 @@ startPanel({
     { id: 'crm', label: 'CRM pipeline', icon: '🎯', group: 'Sales', area: 'crm' },
     { id: 'marketing', label: 'Marketing', icon: '📣', group: 'Growth', area: 'marketing' },
     { id: 'greetings', label: 'Greetings', icon: '🎂', group: 'Growth', area: 'customers' },
+    { id: 'partners', label: 'Partners', icon: '🤝', group: 'Growth', area: 'marketing' },
     { id: 'whatsapp', label: 'WhatsApp', icon: '💬', group: 'Growth', area: 'whatsapp' },
     { id: 'gst', label: 'GST reports', icon: '🏛️', group: 'Admin', area: 'admin' },
     { id: 'users', label: 'Users & roles', icon: '🔐', group: 'Admin', area: 'admin' },
@@ -405,5 +439,5 @@ startPanel({
     { id: 'automation', label: 'Automation', icon: '⚙️', group: 'Admin', area: 'admin' },
     { id: 'settings', label: 'Settings', icon: '🛠️', group: 'Admin', area: 'admin' },
   ],
-  pages: { dashboard, inventory, orders, customers, crm, marketing, gst, greetings, whatsapp, users, audit, automation, settings },
+  pages: { dashboard, inventory, orders, customers, crm, marketing, gst, greetings, partners, whatsapp, users, audit, automation, settings },
 });

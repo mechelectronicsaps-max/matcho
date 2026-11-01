@@ -7,6 +7,7 @@ import { attachUser } from './auth.js';
 import { store, razorpayWebhook } from './routes/store.js';
 import { stock } from './routes/stock.js';
 import { admin } from './routes/admin.js';
+import { extras, servicesStaff, partnersAdmin } from './routes/extras.js';
 import { startScheduler } from './services/jobs.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -23,10 +24,15 @@ export function createApp() {
   });
   // Razorpay webhooks are verified against the raw body, so this route comes before the JSON parser.
   app.post('/api/webhooks/razorpay', express.raw({ type: '*/*', limit: '1mb' }), razorpayWebhook);
+  // Service requests carry design files (STL, Gerber, DXF…) as base64, so they get a larger limit.
+  app.use('/api/services/requests', express.json({ limit: '130mb' }));
   app.use(express.json({ limit: '1mb' }));
   app.use('/api', attachUser);
+  app.use('/api/stock/services', servicesStaff);
   app.use('/api/stock', stock);
+  app.use('/api/admin/partners', partnersAdmin);
   app.use('/api/admin', admin);
+  app.use('/api', extras);
   app.use('/api', store);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 

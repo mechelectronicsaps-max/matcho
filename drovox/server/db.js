@@ -279,6 +279,32 @@ CREATE TABLE IF NOT EXISTS greetings_log (                -- one greeting per pe
   PRIMARY KEY (user_id, kind, year)
 );
 
+CREATE TABLE IF NOT EXISTS service_requests (             -- 3D printing, PCB, laser/acrylic cutting, battery packs
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  req_no TEXT NOT NULL UNIQUE,
+  service TEXT NOT NULL,                          -- print3d | pcb | laser | acrylic | battery
+  user_id INTEGER REFERENCES users(id),
+  name TEXT NOT NULL, phone TEXT NOT NULL, email TEXT,
+  specs TEXT NOT NULL DEFAULT '{}',               -- JSON of the options chosen
+  quantity INTEGER NOT NULL DEFAULT 1,
+  notes TEXT, files TEXT NOT NULL DEFAULT '[]',   -- JSON [{name, stored, size}]
+  estimate REAL NOT NULL DEFAULT 0, estimate_lines TEXT NOT NULL DEFAULT '[]',
+  quoted_price REAL, lead_days INTEGER, staff_notes TEXT,
+  status TEXT NOT NULL DEFAULT 'new',             -- new | quoted | approved | in_production | ready | delivered | cancelled
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS partner_applications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER REFERENCES users(id),
+  name TEXT NOT NULL, phone TEXT NOT NULL, email TEXT, company TEXT, gstin TEXT, city TEXT, state_code TEXT,
+  type TEXT NOT NULL,                             -- reseller | institution | makerspace | integrator | affiliate
+  monthly_volume TEXT, website TEXT, message TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',         -- pending | approved | rejected
+  discount_pct REAL NOT NULL DEFAULT 0, review_note TEXT, reviewed_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), reviewed_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS ai_sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER, idea TEXT NOT NULL, result TEXT NOT NULL, engine TEXT NOT NULL,
@@ -299,6 +325,9 @@ ensureColumn('users', 'anniversary', 'TEXT');    // YYYY-MM-DD
 ensureColumn('users', 'city', 'TEXT');
 ensureColumn('users', 'notes', 'TEXT');
 ensureColumn('users', 'source', "TEXT NOT NULL DEFAULT 'web'");  // web | walk_in | phone | whatsapp | import
+ensureColumn('users', 'partner_type', 'TEXT');                     // set when a partner application is approved
+ensureColumn('users', 'partner_discount', 'REAL NOT NULL DEFAULT 0');
+ensureColumn('orders', 'partner_discount', 'REAL NOT NULL DEFAULT 0');
 db.exec('CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)');
 
 // ---- small helpers -------------------------------------------------------
@@ -358,6 +387,25 @@ export const DEFAULT_SETTINGS = {
   courier: { provider: 'manual', shiprocket_email: '', shiprocket_password: '', tracking_url: 'https://www.shiprocket.in/shipment-tracking/?awb={awb}' },
   ai: { enabled: true, anthropic_api_key: '', model: 'claude-opus-5-5' },
   inventory: { safety_days: 7, target_cover_days: 45, low_stock_default: 10 },
+  partners: {
+    enabled: true,
+    reseller_discount: 10, institution_discount: 8, makerspace_discount: 8, integrator_discount: 7, affiliate_discount: 5,
+    max_discount: 25,
+  },
+  services: {                                      // estimate rates in ₹ (GST extra); staff send the final quote
+    enabled: true, gst_rate: 18,
+    // 3D printing, per gram of printed part
+    pla_per_g: 6, petg_per_g: 8, abs_per_g: 8, tpu_per_g: 12, resin_per_g: 20, print_setup: 50, print_min: 149,
+    // PCB fabrication: setup per design + per cm² per board
+    pcb_setup: 600, pcb_1l_cm2: 0.9, pcb_2l_cm2: 1.3, pcb_4l_cm2: 3.2, pcb_color_extra: 300, pcb_enig_extra: 800, pcb_stencil: 450, pcb_assembly_per_board: 150,
+    // Laser / acrylic cutting: material per cm² of sheet + cutting per metre + engraving per cm²
+    acrylic_2mm_cm2: 0.12, acrylic_3mm_cm2: 0.16, acrylic_5mm_cm2: 0.28, acrylic_8mm_cm2: 0.45,
+    mdf_3mm_cm2: 0.05, mdf_6mm_cm2: 0.09, ply_4mm_cm2: 0.08, cardboard_cm2: 0.02,
+    cut_per_m: 18, engrave_per_cm2: 0.06, cut_min: 149,
+    // Battery packs: cell prices (BIS-registered cells bought in India), BMS and assembly
+    cell_18650: 140, cell_21700: 260, cell_lfp_32700: 420, bms_base: 120, bms_per_s: 35, bms_per_10a: 60,
+    assembly_per_cell: 15, pack_base: 150, battery_test_fee: 199,
+  },
 };
 
 export function getSetting(key) {

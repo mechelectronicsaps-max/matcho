@@ -102,18 +102,24 @@ export function quote(o) {
   }
   const subtotal = round2(lines.reduce((s, l) => s + l.line_total, 0));
 
+  // Approved partners (resellers, institutions, makerspaces…) get their agreed % off every order.
+  const partnerRow = o.user ? get('SELECT partner_type, partner_discount FROM users WHERE id = ?', o.user.id) : null;
+  const partnerPct = partnerRow?.partner_type ? Math.max(0, Math.min(50, Number(partnerRow.partner_discount) || 0)) : 0;
+  const partnerDiscount = round2(subtotal * partnerPct / 100);
+  const base = subtotal - partnerDiscount;
+
   let coupon = null; let discount = 0; let couponError = null;
-  try { coupon = validateCoupon(o.coupon_code, o.user, subtotal); } catch (e) { if (o.strict) throw e; couponError = e.message; }
+  try { coupon = validateCoupon(o.coupon_code, o.user, base); } catch (e) { if (o.strict) throw e; couponError = e.message; }
   if (coupon) {
-    if (coupon.type === 'percent') discount = subtotal * coupon.value / 100;
+    if (coupon.type === 'percent') discount = base * coupon.value / 100;
     else if (coupon.type === 'flat') discount = coupon.value;
     if (coupon.max_discount) discount = Math.min(discount, coupon.max_discount);
-    discount = round2(Math.min(discount, subtotal));
+    discount = round2(Math.min(discount, base));
   }
 
   // Loyalty points
   const userPoints = o.user ? (get('SELECT points FROM users WHERE id = ?', o.user.id)?.points || 0) : 0;
-  const maxByOrder = Math.floor(((subtotal - discount) * L.max_redeem_pct / 100) / L.point_value);
+  const maxByOrder = Math.floor(((base - discount) * L.max_redeem_pct / 100) / L.point_value);
   const maxRedeemable = Math.max(0, Math.min(userPoints, maxByOrder));
   let points = 0;
   if (o.redeem_points) {
@@ -122,14 +128,14 @@ export function quote(o) {
   }
   const pointsValue = round2(points * L.point_value);
 
-  const afterDiscount = subtotal - discount - pointsValue;
-  const freeShip = (coupon && coupon.type === 'free_ship') || subtotal - discount >= ship.free_above || lines.length === 0;
+  const afterDiscount = base - discount - pointsValue;
+  const freeShip = (coupon && coupon.type === 'free_ship') || base - discount >= ship.free_above || lines.length === 0;
   const shipping = freeShip ? 0 : ship.flat_fee;
   const isCod = o.payment_method === 'cod';
   const codFee = isCod ? ship.cod_fee : 0;
 
   // Allocate order-level reductions over lines in proportion to their value, then back out GST.
-  const reduce = discount + pointsValue;
+  const reduce = partnerDiscount + discount + pointsValue;
   const placeOfSupply = o.state_code || store.state_code;
   const intra = placeOfSupply === store.state_code;
   let taxable = 0; let tax = 0;
@@ -162,6 +168,7 @@ export function quote(o) {
   return {
     lines, subtotal, coupon: coupon ? { code: coupon.code, type: coupon.type, value: coupon.value, description: coupon.description } : null,
     coupon_error: couponError, discount, points_redeemed: points, points_value: pointsValue,
+    partner_discount: partnerDiscount, partner_pct: partnerPct,
     points_available: userPoints, points_max_redeemable: maxRedeemable,
     shipping, cod_fee: codFee, total,
     gst: {
@@ -170,8 +177,8 @@ export function quote(o) {
       cgst: intra ? round2(tax / 2) : 0, sgst: intra ? round2(tax / 2) : 0, igst: intra ? 0 : round2(tax),
       by_rate: Object.values(byRate).map((r) => ({ rate: r.rate, taxable: round2(r.taxable), tax: round2(r.tax) })),
     },
-    savings: round2(lines.reduce((s, l) => s + (l.mrp - l.unit_price) * l.qty, 0) + discount + pointsValue + (freeShip && lines.length ? ship.flat_fee : 0)),
-    free_shipping: { threshold: ship.free_above, remaining: freeShip ? 0 : round2(ship.free_above - (subtotal - discount)), unlocked: freeShip },
+    savings: round2(lines.reduce((s, l) => s + (l.mrp - l.unit_price) * l.qty, 0) + partnerDiscount + discount + pointsValue + (freeShip && lines.length ? ship.flat_fee : 0)),
+    free_shipping: { threshold: ship.free_above, remaining: freeShip ? 0 : round2(ship.free_above - (base - discount)), unlocked: freeShip },
     points_earned: pointsEarned, tier: { name: tier.name, multiplier: tier.multiplier },
     warnings,
   };
