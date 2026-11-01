@@ -149,7 +149,7 @@ function reviewsSection() {
 async function pageHome() {
   setTitle('');
   const [home, recentItems, svcHtml, proj, posts] = await Promise.all([api('/home'), recent.get().length ? api('/products/batch', { method: 'POST', body: { ids: recent.get() } }) : [], servicesSection(), api('/projects').catch(() => ({ rows: [] })), api('/posts').catch(() => [])]);
-  const top = `<div class="home-top"><div class="svc-tiles">${TILE_SERVICES.map(([id, name, ic]) => `<a href="#/services/${id}">${esc(name)}<span>${ic}</span></a>`).join('')}</div>${sliderHtml()}</div>`;
+  const top = `<div class="home-top">${isAppUI() ? '' : `<div class="svc-tiles">${TILE_SERVICES.map(([id, name, ic]) => `<a href="#/services/${id}">${esc(name)}<span>${ic}</span></a>`).join('')}</div>`}${sliderHtml()}</div>`;
   const hasStock = home.trending.length || home.new_arrivals.length;
   const today = new Date().toISOString().slice(0, 10);
   const checkin = S.user && S.user.last_checkin !== today
@@ -161,7 +161,7 @@ async function pageHome() {
     ${checkin}
     ${!S.cats.some((c) => c.count) ? '' : section('Categories', '', `<div class="cats">${S.cats.filter((c) => c.count).map((c) => `<a href="#/c/${c.slug}"><span>${c.icon}</span>${esc(c.name)}<div class="tiny muted">${c.count} items</div></a>`).join('')}</div>`, '<a class="btn sm" href="#/search">View all</a>')}
     ${hasStock ? section('🔥 Trending now', 'What makers across India are buying this week', grid(home.trending, 'hscroll'), '<a class="link small" href="#/search?sort=popular">See all →</a>') : `<div class="banner brand section"><div>🛒 Our catalogue is being stocked right now — services are open, and you can <a class="link" href="#/bulk">request any part</a>.</div></div>`}
-    ${S.site.site.show_services_on_home === false ? '' : svcHtml}
+    ${S.site.site.show_services_on_home === false || isAppUI() ? '' : svcHtml}
     ${proj.rows.length ? section('🛠️ DIY projects', 'Pick a project, add the whole parts kit in one click', `<div class="pj-grid">${proj.rows.slice(0, 4).map(projectCard).join('')}</div>`, '<a class="link small" href="#/projects">All projects →</a>') : ''}
     ${home.recommended.length ? section('Recommended for you', 'Based on what you browsed and what others bought with it', grid(home.recommended, 'hscroll')) : ''}
     ${refer}
@@ -677,7 +677,7 @@ async function pageAccount() {
   const u = S.user; const t = u.tier;
   const link = `${location.origin}/#/register?ref=${u.referral_code}`;
   const share = `Use my code ${u.referral_code} on Drovox to get ${S.cfg.loyalty.referee_bonus} bonus points on electronics & robotics parts: ${link}`;
-  app.innerHTML = `<div class="row between"><h1>Hi, ${esc(u.name.split(' ')[0])} 👋</h1><div class="row">${u.can?.stock ? '<a class="btn sm" href="/stockist">Stockist panel</a>' : ''}${u.can?.admin ? '<a class="btn sm" href="/master">Master panel</a>' : ''}<a class="btn sm" href="#/orders">My orders</a><button class="btn sm" id="logout">Sign out</button></div></div>
+  app.innerHTML = `<div class="row between"><h1>Hi, ${esc(u.name.split(' ')[0])} 👋</h1><div class="row">${u.can?.stock && !isAppUI() ? '<a class="btn sm" href="/stockist">Stockist panel</a>' : ''}${u.can?.admin && !isAppUI() ? '<a class="btn sm" href="/master">Master panel</a>' : ''}<a class="btn sm" href="#/orders">My orders</a><button class="btn sm" id="logout">Sign out</button></div></div>
     <div class="grid g3">
       <div class="card kpi"><div class="l">Drovox points</div><div class="v">${num(u.points)}</div><div class="small muted">Worth ${money(u.points * S.cfg.loyalty.point_value)} · use up to ${S.cfg.loyalty.max_redeem_pct}% of an order</div></div>
       <div class="card kpi"><div class="l">Tier</div><div class="v">${esc(t.name)}</div><div class="small muted">${t.multiplier}× points${t.next ? ` · spend ${money(t.next.remaining)} more for ${esc(t.next.name)}` : ' · top tier!'}</div>${t.next ? `<div class="progress" style="margin-top:8px"><i style="width:${Math.min(100, (t.spend / (t.spend + t.next.remaining)) * 100)}%"></i></div>` : ''}</div>
@@ -762,7 +762,7 @@ async function route() {
         else if (isAppUI() && parts[1] !== 'details') pageAccountApp(app, S, setTitle, { logout: async () => { await unlinkPush(); setToken(null); S.user = null; renderHeader(); location.hash = '#/'; } });
         else await pageAccount();
         break;
-      case 'categories': pageCategories(app, S, setTitle); break;
+      case 'categories': await pageCategories(app, S, setTitle); break;
       case 'notifications': await pageNotifications(app, S, setTitle); break;
       case 'waitlist': await pageWaitlist(app, S, setTitle, grid); break;
       default: app.innerHTML = '<div class="empty card"><div class="big">🤖</div><h2>Page not found</h2><a class="btn primary" href="#/">Go home</a></div>';

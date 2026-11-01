@@ -30,9 +30,10 @@ const I = {
 export function mountShell() {
   if (!isAppUI() || $('#tabbar')) return;
   document.documentElement.classList.add('app-ui');
-  document.body.insertAdjacentHTML('afterbegin', `<div id="apphead" class="apphead"><form class="ah-search" id="ah-form" role="search" autocomplete="off">
-      <span class="ah-ic">${I.search}</span><input id="ah-q" aria-label="Search products"><span class="ah-ph" id="ah-ph"><span>Search</span> <b id="ah-word">${PHRASES[0]}</b></span></form>
-      <a class="ah-btn" href="#/wishlist" aria-label="Wishlist">${I.heart}<i class="ah-dot hidden" id="ah-wish"></i></a><a class="ah-btn" href="#/notifications" aria-label="Notifications">${I.bell}</a></div>`);
+  document.body.insertAdjacentHTML('afterbegin', `<div id="apphead" class="apphead"><div class="ah-top">
+      <a href="#/" class="ah-logo" aria-label="Drovox home"><span class="ah-mark">D</span><span class="ah-name"><b>Dro<em>vox</em></b><small>Build Tech with Our Parts</small></span></a>
+      <a class="ah-btn" href="#/wishlist" aria-label="Wishlist">${I.heart}<i class="ah-dot hidden" id="ah-wish"></i></a><a class="ah-btn" href="#/notifications" aria-label="Notifications">${I.bell}</a></div>
+      <form class="ah-search" id="ah-form" role="search" autocomplete="off"><span class="ah-ic">${I.search}</span><input id="ah-q" aria-label="Search products"><span class="ah-ph" id="ah-ph"><span>Search</span> <b id="ah-word">${PHRASES[0]}</b></span></form></div>`);
   document.body.insertAdjacentHTML('beforeend', `<nav id="tabbar" class="tabbar" aria-label="App">
       <a href="#/" data-tab="home" aria-label="Home">${I.home}</a><a href="#/categories" data-tab="cats" aria-label="Categories">${I.grid}</a>
       <a href="#/cart" data-tab="cart" aria-label="Cart">${I.cart}<span class="tb-count hidden" id="tb-cart">0</span></a><a href="#/account" data-tab="acct" aria-label="Account">${I.user}</a></nav>`);
@@ -63,12 +64,14 @@ export function setCounts({ cart = 0, wish = 0 } = {}) {
 }
 
 // ---- Categories -------------------------------------------------------------------------------
-export function pageCategories(app, S, setTitle) {
+export async function pageCategories(app, S, setTitle) {
   setTitle('Categories');
+  const svc = await api('/services').catch(() => ({ services: [] }));
   const cats = S.cats.filter((c) => c.count || !S.cats.some((x) => x.count));
-  const extra = [['#/projects', '🧩', 'DIY Projects'], ['#/services', '🛠️', 'PCB, 3D Print & Laser'], ['#/builder', '✨', 'AI Project Builder'], ['#/search?sort=newest', '🆕', 'New Arrivals'], ['#/search?sort=discount', '💸', 'Best Deals']];
+  const extra = [['#/projects', '🧩', 'DIY Projects'], ['#/builder', '✨', 'AI Project Builder'], ['#/search?sort=newest', '🆕', 'New Arrivals'], ['#/search?sort=discount', '💸', 'Best Deals']];
   const tile = (href, pic, name) => `<a class="cat-tile" href="${href}"><span class="cat-pic">${pic}</span><b>${esc(name)}</b></a>`;
-  app.innerHTML = `<div class="cat-grid">${cats.map((c) => tile(`#/c/${esc(c.slug)}`, c.image ? `<img src="${imgUrl(c.image, 's')}" alt="" loading="lazy" decoding="async" width="360" height="360">` : `<i>${esc(c.icon || '📦')}</i>`, c.name)).join('')}
+  app.innerHTML = `${svc.services.length ? `<h3 class="acc-h" style="margin-top:4px">Fabrication Services</h3><div class="cat-grid svc">${svc.services.map((x) => tile(`#/services/${esc(x.id)}`, `<i>${esc(x.icon || '🛠️')}</i>`, x.short || x.title)).join('')}</div>` : ''}
+    <h3 class="acc-h">Shop by Category</h3><div class="cat-grid">${cats.map((c) => tile(`#/c/${esc(c.slug)}`, c.image ? `<img src="${imgUrl(c.image, 's')}" alt="" loading="lazy" decoding="async" width="360" height="360">` : `<i>${esc(c.icon || '📦')}</i>`, c.name)).join('')}
     ${extra.map(([h, e, n]) => tile(h, `<i>${e}</i>`, n)).join('')}</div>`;
 }
 
@@ -93,7 +96,6 @@ export function pageAccountApp(app, S, setTitle, { logout }) {
     ${group('Help & Information', [
     row('#/notifications', '🔔', 'Notifications'), row('#/support', '🎧', 'Customer Support'), row('#/policy/refunds', '↩️', 'Cancellation & Refunds'),
     row('#/policy/shipping', '🚚', 'Shipping & Delivery'), row('#/policy/privacy', '🔒', 'Privacy Policy'), row('#/policy/terms', '📄', 'Terms & Conditions'), row('#/policy/about', 'ℹ️', 'About Drovox')])}
-    ${u?.can?.stock || u?.can?.admin ? group('Staff', [u.can.stock ? row('/stockist', '🗃️', 'Stockist Panel') : '', u.can.admin ? row('/master', '🛡️', 'Master Panel') : ''].filter(Boolean)) : ''}
     ${u ? '<button class="acc-out" id="acc-out">Sign out</button>' : ''}
     <div class="acc-ver">Drovox · Build Tech with Our Parts</div>`;
   $('#acc-out')?.addEventListener('click', logout);

@@ -563,3 +563,13 @@ html.app-ui #toasts { bottom: calc(92px + env(safe-area-inset-bottom)) !importan
 .filt-toggle { display: none; }
 html.app-ui .filt-toggle { display: inline-flex; border-radius: 999px; margin-bottom: 4px; }
 html.app-ui .filters > .card { display: none; } html.app-ui .filters.open > .card { display: flex; margin-top: 8px; }
+/* app header: logo + tagline row above the search */
+html.app-ui .apphead { flex-direction: column; align-items: stretch; gap: 12px; }
+.ah-top { display: flex; align-items: center; gap: 10px; }
+.ah-logo { flex: 1; display: flex; align-items: center; gap: 10px; color: #fff; min-width: 0; }
+.ah-mark { width: 42px; height: 42px; flex: none; border-radius: 12px; background: linear-gradient(145deg, #ff7a1f, #f25c05 55%, #d94a00); display: grid; place-items: center; font-weight: 900; font-size: 1.45rem; color: #fff; box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .15); }
+.ah-name { display: grid; line-height: 1.1; min-width: 0; }
+.ah-name b { font-size: 1.35rem; font-weight: 900; letter-spacing: -.01em; } .ah-name em { font-style: normal; color: #ff8a3d; }
+.ah-name small { font-size: .78rem; color: #d9d4ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cat-grid.svc .cat-pic { background: radial-gradient(circle at 50% 40%, #6d5ce8, #3a2cb2 75%); }
+html.app-ui .apphead .ah-search { flex: none; height: 50px; }
