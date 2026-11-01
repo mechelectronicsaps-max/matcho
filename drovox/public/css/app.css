@@ -430,3 +430,13 @@ footer.site { padding: 40px 0 0; }
 .trust-row > * { display: grid; gap: 4px; justify-items: center; color: inherit; } .trust-row span { font-size: 1.4rem; } .trust-row b { color: #3b2a8c; font-weight: 600; }
 @media (max-width: 900px) { .lz-layout { grid-template-columns: 1fr; } .trust-row { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 520px) { .lz-mrow { grid-template-columns: 1fr; } .trust-row { grid-template-columns: repeat(2, 1fr); } }
+
+/* policy pages + payment badges */
+.policy-wrap { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 20px; align-items: start; max-width: 1100px; margin: 0 auto; }
+.policy-nav { position: sticky; top: 16px; display: grid; gap: 2px; padding: 10px; }
+.policy-nav a { padding: 8px 10px; border-radius: 8px; font-size: .9rem; } .policy-nav a:hover { background: var(--soft, #f1f5f9); } .policy-nav a.on { background: color-mix(in srgb, var(--brand) 12%, transparent); color: var(--brand); font-weight: 600; }
+.policy h3 { margin-top: 22px; } .policy p, .policy li { line-height: 1.7; }
+@media (max-width: 800px) { .policy-wrap { grid-template-columns: 1fr; } .policy-nav { position: static; grid-template-columns: repeat(2, 1fr); } }
+.ft-pay #ft-paylogos { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.pay-badge { display: inline-grid; place-items: center; width: 64px; height: 30px; background: #fff; border-radius: 6px; box-shadow: 0 0 0 1px rgba(255,255,255,.15); }
+.pay-badge svg { width: 58px; height: 22px; }

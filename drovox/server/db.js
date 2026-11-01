@@ -384,7 +384,8 @@ export function tx(fn) {
 export const DEFAULT_SETTINGS = {
   store: {
     name: 'Drovox', tagline: 'Components for makers, engineers & builders',
-    legal_name: 'Drovox', gstin: '', state_code: '27',
+    legal_name: 'Drovox', gstin: '', state_code: '27', business_type: '',   // e.g. Proprietorship / Partnership / Pvt Ltd
+    jurisdiction_city: '', grievance_officer: '', grievance_email: '',
     address: '', support_phone: '', support_email: '',
     currency: 'INR', public_url: 'http://localhost:3000', sku_prefix: 'DRV',
   },
@@ -426,7 +427,8 @@ export const DEFAULT_SETTINGS = {
     google_reviews_url: '', reviews_title: 'Backed trust in every order',
     show_services_on_home: true, banner_seconds: 5,
     app_ios_url: '', app_android_url: '',            // App Store / Google Play links (badges show 'coming soon' when empty)
-    return_days: 7, dispatch_days: '1–2 business days',
+    return_days: 7, dispatch_days: '1–2 business days', delivery_days: '2–7 business days', refund_days: '5–7 business days',
+    policy_updated: '2026-11-01',                  // shown as 'Last updated' on the policy pages
   },
   partners: {
     enabled: true,

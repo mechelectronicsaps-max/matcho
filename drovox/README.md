@@ -145,8 +145,15 @@ How it works:
 - **✨ Fill with AI:** in the product form, type the name (and brand), click *Fill with AI* — Claude writes the short description, highlights, description, specifications, what's in the box, search tags and HSN. Review, then save. Needs the Claude API key in Master → Settings → AI.
 - **Speed:** gzip compression for pages and API, a 30-second cache for the public config/categories/site/services data (cleared on any staff change), long caching for versioned JS/CSS and library files, and extra database indexes.
 
-## Footer, app badges and policies
-The footer has Shop, Services, Help, Policies and Contact columns, social links, accepted payments and **App Store / Google Play** badges. Add the app links in **Master → Settings → Website** (`iOS app`, `Android app`); until then the badges say "Coming soon". Privacy, Terms, Shipping and Returns pages are at `#/policy/privacy|terms|shipping|returns` (payment gateways such as Razorpay ask for these). Return window and dispatch time come from the same settings tab — review the wording with your advisor before going live.
+## Footer, app badges and policies (Razorpay-ready)
+The footer has Shop, Services, Help, Policies and Contact columns, social links, App Store / Google Play badges ("Coming soon" until you add the links in **Master → Settings → Website**) and accepted-payment badges (UPI, Visa, Mastercard, RuPay, net banking, COD, Razorpay). Staff and stockist logins are not linked from the store — open `/stockist` and `/master` directly.
+
+Policy pages (all linked in the footer, with a side menu): **Privacy Policy** `#/policy/privacy`, **Terms & Conditions** `#/policy/terms`, **Shipping & Delivery** `#/policy/shipping`, **Cancellation & Refunds** `#/policy/refunds`, **Contact Us** `#/policy/contact`, **About Us** `#/policy/about`. Checkout shows a line that placing the order accepts these policies.
+
+**Before applying to Razorpay**, fill these in **Master → Settings**, because the pages use them:
+- *Store & GST*: legal business name (exactly as on your bank / Razorpay account), business type, registered address, GSTIN, support phone and email, jurisdiction city, grievance officer name and email.
+- *Website*: return window, dispatch time, delivery time, refund time, support hours, "policies last updated" date.
+Have the wording reviewed by your CA / lawyer before going live.
 
 ## Customer data & greetings
 

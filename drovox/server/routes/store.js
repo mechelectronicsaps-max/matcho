@@ -33,7 +33,8 @@ function card(p) {
 store.get('/config', (req, res) => {
   const s = getSetting('store'); const sh = getSetting('shipping'); const L = getSetting('loyalty'); const e = getSetting('engagement');
   res.json({
-    store: { name: s.name, tagline: s.tagline, support_phone: s.support_phone, support_email: s.support_email, state_code: s.state_code, address: s.address },
+    store: { name: s.name, tagline: s.tagline, support_phone: s.support_phone, support_email: s.support_email, state_code: s.state_code, address: s.address,
+      legal_name: s.legal_name, gstin: s.gstin, business_type: s.business_type, jurisdiction_city: s.jurisdiction_city, grievance_officer: s.grievance_officer, grievance_email: s.grievance_email },
     shipping: sh, payments: publicPaymentConfig(),
     loyalty: { earn_per_100: L.earn_per_100, point_value: L.point_value, max_redeem_pct: L.max_redeem_pct, signup_bonus: L.signup_bonus, referrer_bonus: L.referrer_bonus, referee_bonus: L.referee_bonus, daily_checkin: L.daily_checkin, tiers: L.tiers },
     engagement: { welcome_coupon: e.welcome_coupon, exit_intent: e.exit_intent, social_proof: e.social_proof },

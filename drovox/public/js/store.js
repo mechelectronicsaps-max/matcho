@@ -1,6 +1,7 @@
 // Drovox storefront (hash-routed single-page app).
 import { $, $$, api, esc, money, num, toast, modal, art, local, getToken, setToken, formData, badge, dt, printInvoice, imgUrl } from './common.js';
 import { pageServices, pagePartner, accountServices } from './services.js';
+import { policyPage, paymentBadges } from './policies.js';
 
 const S = { cfg: null, user: null, cats: [], quoteCache: null, site: { site: {}, banners: [], reviews: [] } };
 const app = $('#app');
@@ -380,6 +381,7 @@ async function pageCheckout() {
     $('#co-sum').innerHTML = `<h3>Order summary</h3>${q.lines.map((l) => `<div class="r-line small" style="display:flex;justify-content:space-between;gap:8px"><span>${l.qty}× ${esc(l.name)}</span><span class="nowrap">${money(l.line_total)}</span></div>`).join('')}<hr class="sep">${summaryHtml(q)}
       ${q.warnings.map((w) => `<div class="small" style="color:var(--red)">${esc(w)}</div>`).join('')}
       <button class="btn primary lg block" id="place" style="margin-top:14px">${method === 'cod' ? 'Place order' : `Pay ${money(q.total, 2)}`}</button>
+      <p class="tiny muted" style="margin:8px 0 0;text-align:center">By placing this order you agree to our <a class="link" href="#/policy/terms">Terms</a>, <a class="link" href="#/policy/refunds">Cancellation &amp; Refund</a> and <a class="link" href="#/policy/shipping">Shipping</a> policies.${method === 'cod' ? '' : ' Payments are processed securely by Razorpay.'}</p>
       <div class="tiny muted" style="margin-top:8px">By placing the order you agree to our terms. Order updates are sent on WhatsApp.</div>`;
     $('#place').onclick = placeOrder;
   };
@@ -764,35 +766,8 @@ function appBadges(site) {
 }
 
 function pagePolicy(slug) {
-  const st = S.cfg.store || {}; const site = S.site.site || {}; const name = st.name || 'Drovox';
-  const contact = `${esc(st.support_email || '')}${st.support_phone ? ` · ${esc(st.support_phone)}` : ''}`;
-  const P = {
-    privacy: ['Privacy policy', `<p>${esc(name)} collects only the details needed to process your orders and service requests: name, phone/WhatsApp number, email, delivery and billing address, GSTIN (if given) and order history. Optional details such as birthday are used only for greetings and offers.</p>
-      <h3>How we use your data</h3><ul><li>To process, ship and support your orders and service requests.</li><li>To send order and delivery updates on WhatsApp, SMS or email.</li><li>To issue GST invoices and meet legal obligations.</li><li>To send offers, only if you have not opted out.</li></ul>
-      <h3>Payments</h3><p>Card, UPI and net-banking payments are processed by our payment gateway. We never see or store your card details.</p>
-      <h3>Sharing</h3><p>We share data only with courier partners (to deliver), the payment gateway and messaging providers (to notify you). We never sell your data.</p>
-      <h3>Your choices</h3><p>You can ask us to correct or delete your data, or stop marketing messages, at any time: ${contact}.</p>`],
-    terms: ['Terms & conditions', `<p>By using this website and placing an order with ${esc(name)} you agree to these terms.</p><ul>
-      <li>Prices are in Indian rupees and include GST unless shown otherwise. Prices and stock can change without notice.</li>
-      <li>An order is confirmed once payment is received, or once it is accepted for cash on delivery.</li>
-      <li>Products are sold for development, education and prototyping. Follow the datasheet and safety rules — especially for lithium batteries, high voltage and mains-powered projects.</li>
-      <li>Service estimates (PCB, 3D printing, laser cutting, battery packs) are indicative. The final price is confirmed after we check your files, and production starts after you approve it. Custom-made items cannot be cancelled once production starts.</li>
-      <li>Reward points and coupons have no cash value and may expire.</li>
-      <li>Disputes are subject to the jurisdiction of the courts where ${esc(name)} is registered.</li></ul>`],
-    shipping: ['Shipping policy', `<ul><li>In-stock orders are dispatched within ${esc(site.dispatch_days || '1–2 business days')}. Service orders ship when production is complete.</li>
-      <li>We ship across India through our courier partners. Delivery usually takes 2–7 days depending on your PIN code.</li>
-      <li>Free shipping applies above the amount shown in the top bar; otherwise shipping is calculated at checkout.</li>
-      <li>You get the tracking link on WhatsApp, and can follow your order on the <a class="link" href="#/track">Track order</a> page.</li>
-      <li>Lithium batteries and packs above 100 Wh go by surface transport only.</li></ul>`],
-    returns: ['Returns & refunds', `<ul><li>Report a damaged, wrong or dead-on-arrival product within ${esc(site.return_days ?? 7)} days of delivery, with photos or an unboxing video.</li>
-      <li>Items must be unused, unsoldered and in the original packing. Soldered, modified, burnt or physically damaged parts cannot be returned.</li>
-      <li>Custom services (PCBs, 3D prints, laser-cut parts, battery packs) are made to your design and can be returned only if they do not match the approved specification.</li>
-      <li>Approved refunds go back to the original payment method within 5–7 business days. Cash-on-delivery orders are refunded by bank transfer or UPI.</li>
-      <li>To start a return, contact ${contact} with your order number.</li></ul>`],
-  };
-  const [title, body] = P[slug] || P.terms;
-  setTitle(title);
-  app.innerHTML = `<div class="card prose" style="max-width:860px;margin:0 auto"><h1>${title}</h1>${body}<p class="small muted">Questions? <a class="link" href="#/support">Contact support</a>.</p></div>`;
+  const { title, html } = policyPage(slug, S);
+  setTitle(title); app.innerHTML = html; window.scrollTo(0, 0);
 }
 
 (async function boot() {
@@ -809,6 +784,8 @@ function pagePolicy(slug) {
   document.addEventListener('click', (e) => { if (!e.target.closest('.allcats')) $('#allcats-menu')?.classList.add('hidden'); });
   $('#ft-social').innerHTML = $('#tb-social').innerHTML;
   $('#ft-year').textContent = new Date().getFullYear();
+  $('#ft-paylogos').innerHTML = paymentBadges();
+  $('#ft-legal').textContent = S.cfg.store.legal_name && S.cfg.store.legal_name !== S.cfg.store.name ? ` · Operated by ${S.cfg.store.legal_name}` : '';
   $('#ft-apps').innerHTML = appBadges(site);
   $('#ft-contact').innerHTML = `${esc(S.cfg.store.support_phone)}<br>${esc(S.cfg.store.support_email)}<br>${esc(S.cfg.store.address)}`;
   await loadMe(); renderCartCount(); syncCart();
