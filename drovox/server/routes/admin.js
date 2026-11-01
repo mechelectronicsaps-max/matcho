@@ -341,7 +341,7 @@ admin.post('/whatsapp/test', requireArea('whatsapp'), async (req, res) => {
 });
 
 // ---- settings & automation ---------------------------------------------------------------------
-const SECRET_KEYS = ['razorpay_key_secret', 'razorpay_webhook_secret', 'access_token', 'anthropic_api_key', 'shiprocket_password', 'myrc_api_key'];
+const SECRET_KEYS = ['razorpay_key_secret', 'razorpay_webhook_secret', 'access_token', 'anthropic_api_key', 'shiprocket_password', 'myrc_api_key', 'fcm_private_key'];
 const mask = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, SECRET_KEYS.includes(k) && v ? '••••' + String(v).slice(-4) : v]));
 admin.get('/settings', requireRole('admin'), (_req, res) => res.json(Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map((k) => [k, mask(getSetting(k))]))));
 admin.put('/settings/:key', requireRole('admin'), (req, res) => {

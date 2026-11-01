@@ -192,3 +192,35 @@ test('DIY projects: starter set matched to the catalogue, public list/detail, st
   assert.equal((await api('POST', '/api/stock/projects/starter', {}, st)).data.added, 0, 'starter set is not duplicated');
   assert.equal((await api('DELETE', `/api/stock/projects/${c.id}`, null, st)).data.ok, true);
 });
+
+test('app: push token registration, assetlinks.json, FCM push for order updates', async () => {
+  const crypto = await import('node:crypto');
+  const { setSetting, getSetting } = await import('../server/db.js');
+  const tok = await login('demo@drovox.in', 'demo123');
+  assert.equal((await api('POST', '/api/me/push-token', { token: 'short' }, tok)).status, 400);
+  assert.equal((await api('POST', '/api/me/push-token', { token: 'fcm-token-abcdefghijklmnopqrstuvwxyz' }, tok)).data.ok, true);
+  assert.equal((await api('POST', '/api/me/push-token', { token: 'fcm-token-abcdefghijklmnopqrstuvwxyz' })).status, 401);
+  assert.deepEqual(await (await fetch(`${base}/.well-known/assetlinks.json`)).json(), []);
+  const fp = Array.from({ length: 32 }, () => 'AB').join(':');
+  const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+  setSetting('app', { ...getSetting('app'), android_sha256: fp, push_enabled: true, fcm_project_id: 'drovox-test', fcm_client_email: 'push@drovox-test.iam.gserviceaccount.com', fcm_private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) });
+  const links = await (await fetch(`${base}/.well-known/assetlinks.json`)).json();
+  assert.equal(links[0].target.package_name, 'in.drovox.app'); assert.deepEqual(links[0].target.sha256_cert_fingerprints, [fp]);
+  const real = globalThis.fetch; const calls = [];
+  globalThis.fetch = async (url, opt) => {
+    if (String(url).startsWith('https://oauth2.googleapis.com')) { calls.push(['auth', String(opt.body)]); return new Response(JSON.stringify({ access_token: 'at', expires_in: 3600 }), { status: 200 }); }
+    if (String(url).startsWith('https://fcm.googleapis.com')) { calls.push(['send', String(url), JSON.parse(opt.body)]); return new Response('{}', { status: 200 }); }
+    return real(url, opt);
+  };
+  try {
+    const { pushToPhone } = await import('../server/services/push.js');
+    const demo = get(`SELECT phone FROM users WHERE email = 'demo@drovox.in'`);
+    pushToPhone(demo.phone, 'Your order DRV2611001 has been shipped');
+    await new Promise((r) => setTimeout(r, 200));
+  } finally { globalThis.fetch = real; setSetting('app', { ...getSetting('app'), push_enabled: false }); }
+  assert.match(calls[0][1], /grant_type=urn/);
+  const send = calls.find((c) => c[0] === 'send');
+  assert.match(send[1], /projects\/drovox-test\/messages:send/);
+  assert.equal(send[2].message.token, 'fcm-token-abcdefghijklmnopqrstuvwxyz');
+  assert.equal(send[2].message.data.link, '#/order/DRV2611001');
+});

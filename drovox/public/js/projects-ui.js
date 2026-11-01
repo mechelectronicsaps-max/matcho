@@ -1,5 +1,6 @@
 // DIY Projects on the storefront: browse school / maker projects and add the whole parts kit to the cart.
 import { $, $$, api, esc, money, toast, art, imgUrl } from './common.js';
+import { share } from './native.js';
 
 const LEVEL = { beginner: ['Beginner', 'green'], intermediate: ['Intermediate', 'amber'], advanced: ['Advanced', 'red'] };
 const CAT_ICON = { Robotics: '🤖', 'IoT & Smart Home': '🏠', 'Arduino Basics': '🔌', 'School Science': '🔬', 'Drones & RC': '🚁', 'Electronics Basics': '💡', 'Sensors & Measurement': '📏', 'Raspberry Pi & AI': '🧠', 'Renewable Energy': '☀️' };
@@ -52,7 +53,7 @@ export async function pageProject(app, slug, setTitle, addToCart) {
         ${p.learn.length ? `<div><div class="f" style="margin-bottom:6px">What you'll learn</div><div class="opt-chips">${p.learn.map((l) => `<span class="chip">✔ ${esc(l)}</span>`).join('')}</div></div>` : ''}
         ${p.parts.length ? `<div class="card pj-kit"><div class="row between"><div><div class="small muted">Complete kit · ${p.parts.length} parts</div><div><span class="price-big" id="kitp">${money(p.kit_price)}</span> ${p.kit_mrp > p.kit_price ? `<span class="muted" style="text-decoration:line-through">${money(p.kit_mrp)}</span>` : ''}</div></div>
           <span class="badge ${p.in_stock ? 'green' : 'amber'}">${p.in_stock ? 'All parts in stock' : 'Some parts low / out of stock'}</span></div>
-          <div class="row" style="margin-top:10px"><button class="btn primary lg" id="kitadd">🛒 Add all parts to cart</button><button class="btn dark lg" id="kitbuy">Buy kit now</button></div>
+          <div class="row" style="margin-top:10px"><button class="btn primary lg" id="kitadd">🛒 Add all parts to cart</button><button class="btn dark lg" id="kitbuy">Buy kit now</button><button class="btn lg" id="pjshare">↗ Share</button></div>
           <div class="tiny muted" style="margin-top:6px">Already have some parts? Untick them in the list below.</div></div>` : '<div class="banner">The parts list for this project is being prepared — <a class="link" href="#/bulk">ask us for a kit quote</a>.</div>'}
       </div>
     </div>
@@ -78,5 +79,6 @@ export async function pageProject(app, slug, setTitle, addToCart) {
     toast(`Added ${chosen.length} parts for “${p.title}” to your cart${skipped.length ? ` · ${skipped.length} out of stock (${skipped.map((x) => x.name.split('(')[0].trim()).join(', ')})` : ''}`); return true;
   };
   $('#kitadd')?.addEventListener('click', addKit);
+  $('#pjshare')?.addEventListener('click', () => share({ title: p.title, text: `${p.title} — DIY project with the complete parts kit`, url: `${location.origin}/#/projects/${p.slug}` }));
   $('#kitbuy')?.addEventListener('click', async () => { if (await addKit()) location.hash = '#/checkout'; });
 }

@@ -2,6 +2,7 @@
 // When WhatsApp is not configured, messages are recorded in the outbox as "simulated" so the whole
 // flow can be tested end to end; enter the gateway API key in Master → Settings → WhatsApp to go live.
 import { run, getSetting } from '../db.js';
+import { pushToPhone } from './push.js';
 
 export function normalisePhone(p) {
   let d = String(p || '').replace(/\D/g, '');
@@ -90,4 +91,5 @@ export async function sendWhatsApp(to, body, opt = {}) {
 /** Fire-and-forget wrapper used from order automation, so a WhatsApp outage never blocks an order. */
 export function notify(to, body, opt) {
   sendWhatsApp(to, body, opt).catch((e) => console.error('[whatsapp]', e.message));
+  try { pushToPhone(to, body); } catch (e) { console.error('[push]', e.message); }   // same update as an app notification
 }

@@ -339,6 +339,10 @@ CREATE TABLE IF NOT EXISTS ai_sessions (
 );
 `;
 db.exec(SCHEMA);
+db.exec(`CREATE TABLE IF NOT EXISTS push_tokens (              -- phones with the Drovox app (FCM / APNs tokens)
+  token TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  platform TEXT NOT NULL DEFAULT 'android', created_at TEXT NOT NULL DEFAULT (datetime('now')), seen_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
 db.exec(`CREATE TABLE IF NOT EXISTS diy_projects (            -- DIY / school projects with a ready parts list
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
@@ -446,6 +450,11 @@ export const DEFAULT_SETTINGS = {
     app_ios_url: '', app_android_url: '',            // App Store / Google Play links (badges show 'coming soon' when empty)
     return_days: 7, dispatch_days: '1–2 business days', delivery_days: '2–7 business days', refund_days: '5–7 business days',
     policy_updated: '2026-11-01',                  // shown as 'Last updated' on the policy pages
+  },
+  app: {                                           // Android / iOS app (Capacitor) — push and app links
+    push_enabled: false, fcm_project_id: '', fcm_client_email: '', fcm_private_key: '',
+    android_package: 'in.drovox.app', android_sha256: '',   // SHA-256 signing fingerprint(s), comma separated — for app links
+    play_store_url: '',
   },
   partners: {
     enabled: true,

@@ -3,6 +3,7 @@ import { $, $$, api, esc, money, num, toast, modal, art, local, getToken, setTok
 import { pageServices, pagePartner, accountServices } from './services.js';
 import { policyPage, paymentBadges } from './policies.js';
 import { pageProjects, pageProject, projectCard } from './projects-ui.js';
+import { initNative, syncPushToken, unlinkPush, share, isApp } from './native.js';
 
 const S = { cfg: null, user: null, cats: [], quoteCache: null, site: { site: {}, banners: [], reviews: [] } };
 const app = $('#app');
@@ -254,7 +255,7 @@ async function pageProduct(slug) {
         <div class="row"><div class="qty"><button id="minus" aria-label="Decrease">−</button><input id="qty" value="1" inputmode="numeric" aria-label="Quantity"><button id="plus" aria-label="Increase">+</button></div>
           <div><b id="line">${money(p.price)}</b> <span class="small muted" id="nudge"></span></div></div>
         <div class="row">${p.stock > 0 ? '<button class="btn primary lg" id="add">Add to cart</button><button class="btn dark lg" id="buy">Buy now</button>' : '<button class="btn primary lg" id="notify">🔔 Notify me when back</button>'}
-          <a class="btn lg" href="#/bulk?sku=${esc(p.sku)}">Bulk quote</a><button class="btn lg ${wish.has(p.id) ? 'on' : ''}" data-wish="${p.id}" title="Wishlist">♡ Wishlist</button><button class="btn lg" data-cmp="${p.id}" title="Compare">⇄ Compare</button></div>
+          <a class="btn lg" href="#/bulk?sku=${esc(p.sku)}">Bulk quote</a><button class="btn lg ${wish.has(p.id) ? 'on' : ''}" data-wish="${p.id}" title="Wishlist">♡ Wishlist</button><button class="btn lg" id="pshare" title="Share">↗ Share</button><button class="btn lg" data-cmp="${p.id}" title="Compare">⇄ Compare</button></div>
         <div class="small muted">⭐ Earn ~${Math.floor(p.price / 100 * S.cfg.loyalty.earn_per_100)} Drovox points · 🚚 Free shipping above ${money(S.cfg.shipping.free_above)} · 💵 COD available</div>
         <hr class="sep"><div class="pdp-tabs">${p.description ? `<h3>Description</h3>${p.description.split(/\n{2,}/).map((x) => `<p>${esc(x)}</p>`).join('')}` : ''}
         ${p.in_box.length ? `<h3>What's in the box</h3><ul class="pdp-hl">${p.in_box.map((h) => `<li>${esc(h)}</li>`).join('')}</ul>` : ''}
@@ -267,6 +268,7 @@ async function pageProduct(slug) {
     ${p.bought_together.length > 2 ? section('Complete your build', '', grid(p.bought_together)) : ''}
     ${section('Similar products', '', grid(p.similar, 'hscroll'))}`;
   wireGallery(p);
+  $('#pshare').onclick = () => share({ title: p.name, text: `${p.name} — ${money(p.price)} at Drovox`, url: `${location.origin}/#/p/${p.slug}` });
   const qtyEl = $('#qty');
   const update = () => {
     qty = Math.max(1, Math.min(999, parseInt(qtyEl.value, 10) || 1)); qtyEl.value = qty;
@@ -550,7 +552,7 @@ function pageAuth(mode, params) {
     e.preventDefault();
     try {
       const r = await api(`/auth/${mode}`, { method: 'POST', body: formData(e.target) });
-      setToken(r.token); await loadMe();
+      setToken(r.token); await loadMe(); syncPushToken();
       if (mode === 'register') { local.del('drv_ref'); toast(`Welcome to Drovox! ${num(r.user.points)} points added 🎉`); }
       // merge any cart saved on the server from another device
       const saved = await api('/cart/saved').catch(() => []);
@@ -693,7 +695,7 @@ async function pageAccount() {
       <label class="check full"><input type="checkbox" name="whatsapp_opt_in" ${u.whatsapp_opt_in ? 'checked' : ''}> Send me order updates and offers on WhatsApp</label>
       <label class="f">New password (optional)<input name="password" type="password" minlength="6" autocomplete="new-password"></label><div class="full"><button class="btn primary">Save</button></div></form></div>`;
   accountServices($('#svc'));
-  $('#logout').onclick = () => { setToken(null); S.user = null; renderHeader(); location.hash = '#/'; };
+  $('#logout').onclick = async () => { await unlinkPush(); setToken(null); S.user = null; renderHeader(); location.hash = '#/'; };
   $('#copy').onclick = () => { navigator.clipboard?.writeText(link); toast('Referral link copied'); };
   $('#checkin').onclick = async () => { const r = await api('/me/checkin', { method: 'POST' }); toast(r.already ? 'Already collected today' : `+${r.points} points · ${r.streak}-day streak 🔥`); pageAccount(); };
   $('#pf').onsubmit = async (e) => { e.preventDefault(); const f = formData(e.target); if (!f.password) delete f.password; try { await api('/me', { method: 'PUT', body: f }); toast('Profile saved'); loadMe(); } catch (err) { toast(err.message, 'err'); } };
@@ -791,6 +793,8 @@ function pagePolicy(slug) {
   $('#ft-legal').textContent = S.cfg.store.legal_name && S.cfg.store.legal_name !== S.cfg.store.name ? ` · Operated by ${S.cfg.store.legal_name}` : '';
   $('#ft-apps').innerHTML = appBadges(site);
   $('#ft-contact').innerHTML = `${esc(S.cfg.store.support_phone)}<br>${esc(S.cfg.store.support_email)}<br>${esc(S.cfg.store.address)}`;
-  await loadMe(); renderCartCount(); syncCart();
+  initNative();
+  await loadMe(); renderCartCount(); syncCart(); syncPushToken();
+  if (isApp()) $('#ft-apps')?.closest('.ft-brand')?.querySelectorAll('h4, #ft-apps').forEach((x) => x.remove());
   window.addEventListener('hashchange', route); route(); exitIntent();
 })();

@@ -1,0 +1,87 @@
+# Builds the Drovox Android app (drovox/mobile).
+#  • Every push that changes drovox/mobile → a test APK (debug signed) you can install on a phone.
+#  • Run manually (Actions → "Drovox Android app" → Run workflow) for a release build: signed APK + AAB for Google Play.
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   DROVOX_URL                  live store URL, e.g. https://drovox.in (else app.config.json is used)
+#   ANDROID_KEYSTORE_BASE64     base64 of your upload keystore (.jks)       — release builds
+#   ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD     — release builds
+#   GOOGLE_SERVICES_JSON        contents of google-services.json from Firebase (push notifications)
+name: Drovox Android app
+
+on:
+  push:
+    paths: ['drovox/mobile/**', '.github/workflows/drovox-android.yml']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Signed release build (APK + AAB for Play Store)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: drovox/mobile
+    env:
+      DROVOX_URL: ${{ secrets.DROVOX_URL }}
+      DROVOX_VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: drovox/mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+
+      - name: Install
+        run: npm ci
+      - name: Firebase config (push notifications)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json; echo "google-services.json added"; else echo "::warning::GOOGLE_SERVICES_JSON secret not set — the app builds, but push notifications are off"; fi
+
+      - name: Configure site URL and sync Capacitor
+        run: npm run sync
+
+      - name: Signing key
+        if: github.event_name == 'workflow_dispatch' && inputs.release
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then echo "::error::Add the ANDROID_KEYSTORE_BASE64 secret for release builds"; exit 1; fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          echo "DROVOX_KEYSTORE_FILE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+
+      - name: Build test APK
+        if: github.event_name != 'workflow_dispatch' || !inputs.release
+        working-directory: drovox/mobile/android
+        run: chmod +x gradlew && ./gradlew --no-daemon assembleDebug
+
+      - name: Build signed release (APK + AAB)
+        if: github.event_name == 'workflow_dispatch' && inputs.release
+        working-directory: drovox/mobile/android
+        env:
+          DROVOX_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          DROVOX_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          DROVOX_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: chmod +x gradlew && ./gradlew --no-daemon assembleRelease bundleRelease
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: drovox-android-${{ github.run_number }}
+          path: |
+            drovox/mobile/android/app/build/outputs/apk/**/*.apk
+            drovox/mobile/android/app/build/outputs/bundle/**/*.aab
+          if-no-files-found: error

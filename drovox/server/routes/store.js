@@ -286,6 +286,18 @@ store.get('/orders/:no/invoice', requireUser, (req, res) => {
   if (!o.invoice_no) return res.status(400).json({ error: 'The invoice is issued once the order is confirmed' });
   res.json(invoiceData(o.id));
 });
+// ---- app: register this phone for push notifications --------------------------------------
+store.post('/me/push-token', requireUser, (req, res) => {
+  const token = String(req.body?.token || '').trim(); const platform = req.body?.platform === 'ios' ? 'ios' : 'android';
+  if (token.length < 20 || token.length > 4096) return res.status(400).json({ error: 'Invalid token' });
+  run(`INSERT INTO push_tokens(token, user_id, platform) VALUES (?,?,?) ON CONFLICT(token) DO UPDATE SET user_id = excluded.user_id, platform = excluded.platform, seen_at = datetime('now')`, token, req.user.id, platform);
+  res.json({ ok: true });
+});
+store.delete('/me/push-token', requireUser, (req, res) => {
+  run('DELETE FROM push_tokens WHERE token = ? AND user_id = ?', String(req.body?.token || ''), req.user.id);
+  res.json({ ok: true });
+});
+
 store.post('/orders/:no/cancel', requireUser, (req, res, next) => {
   const o = myOrder(req, res); if (!o) return;
   if (!['pending_payment', 'confirmed'].includes(o.status)) return res.status(400).json({ error: 'This order has already been packed and can no longer be cancelled online' });

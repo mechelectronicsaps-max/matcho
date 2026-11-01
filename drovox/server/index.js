@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { attachUser } from './auth.js';
+import { getSetting } from './db.js';
 import { store, razorpayWebhook } from './routes/store.js';
 import { stock } from './routes/stock.js';
 import { admin } from './routes/admin.js';
@@ -84,6 +85,11 @@ export function createApp() {
     res.set('Cache-Control', 'no-store').type('html').send(html);
   };
   for (const [route, file] of [['/', 'index.html'], ['/index.html', 'index.html'], ['/stockist', 'stockist.html'], ['/stockist.html', 'stockist.html'], ['/master', 'master.html'], ['/master.html', 'master.html']]) app.get(route, page(file));
+  // Android App Links: lets drovox links open straight in the app (fingerprint from Play Console → App signing)
+  app.get('/.well-known/assetlinks.json', (_req, res) => {
+    const a = getSetting('app'); const fps = String(a.android_sha256 || '').split(/[\s,]+/).filter((f) => /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/i.test(f));
+    res.json(fps.length ? [{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: a.android_package, sha256_cert_fingerprints: fps.map((f) => f.toUpperCase()) } }] : []);
+  });
   app.use('/v/:build', express.static(PUBLIC, { maxAge: '30d', immutable: true }));
   app.use('/uploads/site', express.static(SITE_UPLOADS_DIR, { maxAge: '7d' }));
   // product photos: random file names never change, so browsers and CDNs can keep them for a year

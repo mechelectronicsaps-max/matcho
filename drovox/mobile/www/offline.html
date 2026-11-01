@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Drovox — offline</title>
+<style>
+  :root { --bg: #13203A; --brand: #F25C05; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: #fff; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  main { min-height: 100%; display: grid; place-items: center; text-align: center; padding: 24px; box-sizing: border-box; }
+  .mark { width: 76px; height: 76px; border-radius: 20px; background: var(--brand); display: grid; place-items: center; font-weight: 800; font-size: 40px; margin: 0 auto 18px; }
+  h1 { font-size: 1.4rem; margin: 0 0 8px; } p { color: #cbd5e1; margin: 0 0 22px; line-height: 1.5; }
+  button { background: var(--brand); color: #fff; border: 0; border-radius: 12px; padding: 14px 28px; font-size: 1rem; font-weight: 700; }
+  small { display: block; margin-top: 18px; color: #94a3b8; }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <div class="mark">D</div>
+    <h1>You're offline</h1>
+    <p>Check your mobile data or Wi-Fi,<br>then try again.</p>
+    <button id="retry">Try again</button>
+    <small>Build Tech with Our Parts</small>
+  </div>
+</main>
+<script>
+  document.getElementById('retry').onclick = () => { location.href = window.DROVOX_URL || '/'; };
+  window.addEventListener('online', () => document.getElementById('retry').click());
+</script>
+</body>
+</html>
