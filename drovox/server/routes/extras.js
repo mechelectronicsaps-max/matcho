@@ -9,6 +9,7 @@ import { SERVICES, SERVICE_STATUS, estimate, publicCatalog } from '../services/f
 import { sendWhatsApp, notify } from '../services/whatsapp.js';
 import { validGstin } from '../pricing.js';
 import { scoreLead } from '../services/engine.js';
+import { analyzeGerberZip } from '../services/gerber.js';
 
 const UPLOADS = path.join(path.dirname(DB_FILE), 'uploads');
 const MAX_FILE = 20 * 1024 * 1024; const MAX_FILES = 5;
@@ -29,7 +30,16 @@ extras.post('/services/estimate', (req, res, next) => {
   try { res.json(estimate(req.body?.service, req.body || {})); } catch (e) { next(e); }
 });
 
-extras.post('/services/requests', (req, res, next) => {
+/** Gerber viewer: analyse an uploaded Gerber ZIP → board images, size and layer count for the price. */
+extras.post('/services/pcb/gerber', async (req, res, next) => {
+  try {
+    const buf = Buffer.from(String(req.body?.data || '').replace(/^data:[^,]*,/, ''), 'base64');
+    const a = await analyzeGerberZip(buf);
+    res.json(a);
+  } catch (e) { next(e); }
+});
+
+extras.post('/services/requests', async (req, res, next) => {
   try {
     if (!getSetting('services').enabled) return res.status(400).json({ error: 'Services are not taking new requests right now' });
     const b = req.body || {};
@@ -53,6 +63,15 @@ extras.post('/services/requests', (req, res, next) => {
     if (decoded.length) {
       const dir = path.join(UPLOADS, reqNo); fs.mkdirSync(dir, { recursive: true });
       decoded.forEach((d, i) => { const fname = `${i + 1}-${d.base}`; fs.writeFileSync(path.join(dir, fname), d.buf); stored.push({ name: d.base, stored: fname, size: d.buf.length }); });
+    }
+    // PCB: render the uploaded Gerber ZIP once and keep the board images + detected size with the order.
+    if (b.service === 'pcb') {
+      if (!decoded.some((d) => d.base.toLowerCase().endsWith('.zip'))) return res.status(400).json({ error: 'Upload your Gerber files as a .zip to order PCBs' });
+      const z = decoded.find((d) => d.base.toLowerCase().endsWith('.zip'));
+      const g = await analyzeGerberZip(z.buf);
+      const dir = path.join(UPLOADS, reqNo); fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'gerber-top.svg'), g.top_svg); fs.writeFileSync(path.join(dir, 'gerber-bottom.svg'), g.bottom_svg);
+      est.specs.gerber = { width_mm: g.width_mm, height_mm: g.height_mm, layers: g.layers, copper_layers: g.copper_layers, drill_hits: g.drill_hits, has_outline: g.has_outline, files: g.files.length, warnings: g.warnings };
     }
     const r = run(`INSERT INTO service_requests(req_no, service, user_id, name, phone, email, specs, quantity, notes, files, estimate, estimate_lines) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       reqNo, b.service, req.user?.id ?? null, name, phone, b.email || req.user?.email || null, JSON.stringify(est.specs), est.quantity,
@@ -126,10 +145,25 @@ export const servicesStaff = express.Router();
 servicesStaff.use(requireArea('stock'));
 
 servicesStaff.get('/', (req, res) => {
-  const st = req.query.status;
-  const rows = all(`SELECT * FROM service_requests ${st ? 'WHERE status = ?' : ''} ORDER BY CASE status WHEN 'new' THEN 0 WHEN 'approved' THEN 1 WHEN 'in_production' THEN 2 WHEN 'quoted' THEN 3 WHEN 'ready' THEN 4 ELSE 5 END, id DESC LIMIT 300`, ...(st ? [st] : [])).map(parse);
-  const counts = Object.fromEntries(SERVICE_STATUS.map((s) => [s, get('SELECT COUNT(*) n FROM service_requests WHERE status = ?', s).n]));
-  res.json({ rows, counts, statuses: SERVICE_STATUS });
+  const st = req.query.status; const svc = req.query.service;
+  const where = []; const vals = [];
+  if (st) { where.push('status = ?'); vals.push(st); }
+  if (svc) { where.push(svc === 'laser' ? "service IN ('laser','acrylic')" : 'service = ?'); if (svc !== 'laser') vals.push(svc); }
+  const rows = all(`SELECT * FROM service_requests ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY CASE status WHEN 'new' THEN 0 WHEN 'approved' THEN 1 WHEN 'in_production' THEN 2 WHEN 'quoted' THEN 3 WHEN 'ready' THEN 4 ELSE 5 END, id DESC LIMIT 300`, ...vals).map(parse);
+  const svcWhere = svc ? (svc === 'laser' ? "service IN ('laser','acrylic')" : 'service = ?') : '1=1'; const svcVals = svc && svc !== 'laser' ? [svc] : [];
+  const counts = Object.fromEntries(SERVICE_STATUS.map((s) => [s, get(`SELECT COUNT(*) n FROM service_requests WHERE status = ? AND ${svcWhere}`, s, ...svcVals).n]));
+  // open jobs per service, for the category tabs
+  const open = `status NOT IN ('delivered','cancelled')`;
+  const by_service = Object.fromEntries(Object.entries(SERVICES).filter(([, v]) => !v.legacy).map(([k]) => [k, get(`SELECT COUNT(*) n FROM service_requests WHERE ${open} AND ${k === 'laser' ? "service IN ('laser','acrylic')" : 'service = ?'}`, ...(k === 'laser' ? [] : [k])).n]));
+  const services = Object.entries(SERVICES).filter(([, v]) => !v.legacy).sort((a, b) => a[1].order - b[1].order).map(([id, v]) => ({ id, title: v.title, short: v.short, icon: v.icon }));
+  res.json({ rows, counts, statuses: SERVICE_STATUS, by_service, services, all_open: get(`SELECT COUNT(*) n FROM service_requests WHERE ${open}`).n });
+});
+servicesStaff.get('/:id/gerber/:side', (req, res) => {
+  const r = get('SELECT req_no FROM service_requests WHERE id = ?', req.params.id);
+  const side = req.params.side === 'bottom' ? 'bottom' : 'top';
+  const p = r && path.join(UPLOADS, r.req_no, `gerber-${side}.svg`);
+  if (!p || !fs.existsSync(p)) return res.status(404).json({ error: 'No board render for this order' });
+  res.set({ 'Content-Type': 'image/svg+xml', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" }).send(fs.readFileSync(p));
 });
 servicesStaff.get('/:id', (req, res) => { const r = parse(get('SELECT * FROM service_requests WHERE id = ?', req.params.id)); r ? res.json(r) : res.status(404).json({ error: 'Not found' }); });
 

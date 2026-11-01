@@ -84,7 +84,7 @@ Storefront → **Services** (`/#/services`) offers six services:
 - **Metal laser cutting:** MS, SS304, aluminium, brass and GI. Only the thicknesses each metal supports are offered, and bending is optional.
 - **Customized lithium-ion battery packs.**
 - **Non-metal laser cutting:** acrylic 2–8 mm in colours, MDF, plywood, cardboard, leather and EVA foam.
-- **PCB manufacturing:** 1, 2 or 4 layers, mask colour, HASL or ENIG finish, stencil and assembly.
+- **PCB manufacturing (robu.in / JLCPCB style):** see *PCB online ordering* below.
 
 Each service page lists its materials and capabilities. A battery pack can be built new (18650 / 21700 / LiFePO4, series × parallel, BMS, connector; the page shows voltage, Ah, Wh and weight) or an existing pack can be tested and repaired.
 - **For customers:**
@@ -97,6 +97,13 @@ Each service page lists its materials and capabilities. A battery pack can be bu
   - Move the job to Approved → In production → Ready → Delivered. The customer gets a WhatsApp message at each step.
 - **Battery packs** are priced with BIS-registered cells bought in India.
 - **Big packs:** packs over 100 Wh are flagged as surface shipping only.
+
+### PCB online ordering with built-in Gerber viewer
+- **Upload Gerber ZIP first.** The server unzips it, detects each layer, measures the board outline and renders **Top / Bottom** views right on the page. Width, height and layer count are filled in automatically, with warnings (no outline, no drill file, odd layer count).
+- **All options priced automatically:** base material FR-4 or aluminium (1-layer), 1/2/4/6 layers, quantity, different designs, delivery format (single / panel by customer / panel by Drovox), thickness 0.4–2.0 mm, mask colour (incl. matte), HASL / lead-free HASL / ENIG, 1 or 2 oz copper, via covering (tented / untented / plugged), minimum hole, gold fingers, castellated holes, impedance control (4+ layers), remove order number, stencil, assembly, standard or express build. The estimate shows the price with GST, build days and board weight.
+- An order cannot be placed without the Gerber ZIP (max 25 MB).
+- Default rates are placeholders. Set your real rates in **Master → Settings → Services**.
+- **Stockist panel → Service jobs** has a separate tab for each service (3D printing, metal laser, battery, laser cutting, PCB…), with open-job counts, plus status tabs. The PCB job shows the Gerber Top/Bottom view and flags any mismatch between the detected and ordered size or layers.
 
 ## Become a Partner
 

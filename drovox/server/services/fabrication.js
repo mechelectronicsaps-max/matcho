@@ -41,10 +41,10 @@ export const SERVICES = {
   },
   pcb: {
     title: 'PCB Manufacturing', short: 'PCB Manufacturing', icon: '🟩', lead: '7–12 days', order: 6,
-    blurb: '1, 2 and 4-layer PCBs with HASL or ENIG finish in any solder-mask colour, with optional stencil and assembly. Upload your Gerber ZIP for an instant estimate.',
-    files: ['zip', 'rar', '7z', 'gbr', 'pdf'],
-    materials: ['FR-4 1 / 2 / 4 layers', 'Thickness 0.8–2.0 mm', 'HASL or ENIG finish', 'Green, black, blue, red, white, yellow mask'],
-    features: ['Free DFM check before production', 'SMT stencil available', 'Assembly (SMT + THT) on request', 'E-test on multi-layer boards'],
+    blurb: 'Upload your Gerber ZIP — we render the board, detect its size and layer count, and price it instantly. 1–6 layer FR-4 and aluminium PCBs with every finish, plus stencil and assembly.',
+    files: ['zip'],
+    materials: ['FR-4 (TG130–140) 1 / 2 / 4 / 6 layers', 'Aluminium metal-core (1 layer) for LEDs', 'Thickness 0.4–2.0 mm, 1 oz or 2 oz copper', 'HASL, lead-free HASL or ENIG', '9 solder-mask colours incl. matte'],
+    features: ['Built-in Gerber viewer: size & layers detected automatically', 'Free DFM check before production', 'Panelisation, gold fingers, castellated holes, impedance control', 'SMT stencil and assembly on request', '100% flying-probe / E-test'],
   },
   // Older request type kept so earlier requests still display; no longer offered separately.
   acrylic: { title: 'Acrylic Cutting', short: 'Acrylic Cutting', icon: '💎', lead: '1–3 days', legacy: true, files: ['dxf', 'svg', 'pdf', 'ai', 'cdr', 'png', 'jpg', 'jpeg', 'zip'] },
@@ -77,7 +77,7 @@ export function estimate(service, raw = {}) {
   const svc = SERVICES[service];
   if (!svc) throw new SpecError('Unknown service');
   const qty = clamp(Math.floor(num(raw.quantity, 1)), 1, 10000);
-  const lines = []; const info = {}; let specs = {}; let summary = '';
+  const lines = []; const info = {}; let specs = {}; let summary = ''; let lead = svc.lead;
   const add = (label, amount) => lines.push({ label, amount: round2(amount) });
 
   if (service === 'print3d') {
@@ -98,23 +98,55 @@ export function estimate(service, raw = {}) {
   }
 
   if (service === 'pcb') {
-    const layers = [1, 2, 4].includes(num(raw.layers)) ? num(raw.layers) : 2;
+    // Full option set used by Indian/Chinese PCB fabs (material, layers, panel, thickness, mask, finish, copper…)
+    const pick = (v, list, def) => (list.includes(String(v)) ? String(v) : def);
+    const layers = [1, 2, 4, 6].includes(num(raw.layers)) ? num(raw.layers) : 2;
     const w = clamp(num(raw.width_mm), 5, 500); const h = clamp(num(raw.height_mm), 5, 500);
-    if (!(num(raw.width_mm) > 0 && num(raw.height_mm) > 0)) throw new SpecError('Enter the board width and height in mm');
-    const colour = ['green', 'black', 'blue', 'red', 'white', 'yellow'].includes(raw.colour) ? raw.colour : 'green';
-    const finish = raw.finish === 'enig' ? 'enig' : 'hasl';
-    const thickness = ['0.8', '1.0', '1.2', '1.6', '2.0'].includes(String(raw.thickness)) ? String(raw.thickness) : '1.6';
-    const stencil = !!raw.stencil; const assembly = !!raw.assembly;
-    specs = { layers, width_mm: w, height_mm: h, colour, finish, thickness, stencil, assembly };
-    const area = (w * h) / 100; // cm²
-    info.area_cm2 = round2(area);
-    add('Engineering & tooling (per design)', R.pcb_setup);
-    add(`${layers}-layer board ${w}×${h} mm (${round2(area)} cm²) × ${qty}`, area * qty * R[`pcb_${layers}l_cm2`]);
-    if (colour !== 'green') add(`${colour} solder mask`, R.pcb_color_extra);
+    if (!(num(raw.width_mm) > 0 && num(raw.height_mm) > 0)) throw new SpecError('Upload your Gerber ZIP or enter the board width and height in mm');
+    const material = pick(raw.material, ['fr4', 'aluminium'], 'fr4');
+    const designs = clamp(Math.floor(num(raw.designs, 1)), 1, 10);
+    const delivery = pick(raw.delivery, ['single', 'panel_customer', 'panel_drovox'], 'single');
+    const thickness = pick(raw.thickness, ['0.4', '0.6', '0.8', '1.0', '1.2', '1.6', '2.0'], '1.6');
+    const colour = pick(raw.colour, ['green', 'red', 'yellow', 'blue', 'white', 'black', 'purple', 'matte_black', 'matte_green'], 'green');
+    const finish = pick(raw.finish, ['hasl', 'hasl_lf', 'enig'], 'hasl');
+    const copper = pick(raw.copper, ['1', '2'], '1');
+    const via = pick(raw.via, ['tented', 'untented', 'plugged'], 'tented');
+    const minHole = pick(raw.min_hole, ['0.3', '0.25', '0.2'], '0.3');
+    const gold = !!raw.gold_fingers; const castellated = !!raw.castellated; const impedance = !!raw.impedance && layers >= 4;
+    const removeMark = !!raw.remove_mark; const stencil = !!raw.stencil; const assembly = !!raw.assembly;
+    const express = raw.build === 'express';
+    if (material === 'aluminium' && layers > 1) throw new SpecError('Aluminium (metal-core) boards are made as 1-layer only');
+    specs = { material, layers, width_mm: w, height_mm: h, designs, delivery, thickness, colour, silkscreen: colour === 'white' ? 'black' : 'white', finish, copper, via, min_hole: minHole,
+      gold_fingers: gold, castellated, impedance, remove_mark: removeMark, stencil, assembly, build: express ? 'express' : 'standard' };
+    const area = (w * h) / 100; // cm² per board
+    const rate = R[`pcb_${layers}l_cm2`] ?? R.pcb_2l_cm2;
+    let boards = area * qty * rate;
+    info.area_cm2 = round2(area); info.total_area_m2 = round2((area * qty) / 10000);
+    add(layers <= 2 ? 'Engineering, CAM & tooling' : `Multilayer engineering & tooling (${layers}L)`, layers <= 2 ? R.pcb_setup : R.pcb_setup_multilayer);
+    if (material === 'aluminium') boards *= 1 + R.pcb_aluminium_pct / 100;
+    if (copper === '2') boards *= 1 + R.pcb_2oz_pct / 100;
+    if (['0.4', '0.6', '2.0'].includes(thickness)) boards *= 1 + R.pcb_thickness_pct / 100;
+    add(`${layers}-layer ${material === 'aluminium' ? 'aluminium' : 'FR-4'} ${w}×${h} mm (${round2(area)} cm²) × ${qty}${copper === '2' ? ', 2 oz' : ''}${['0.4', '0.6', '2.0'].includes(thickness) ? `, ${thickness} mm` : ''}`, boards);
+    if (designs > 1) add(`${designs} different designs in the panel`, (designs - 1) * R.pcb_design_extra);
+    if (delivery === 'panel_drovox') add('Panelisation by Drovox (V-cut / mouse bites)', R.pcb_panel_fee);
+    if (colour.startsWith('matte')) add(`${colour.replace('_', ' ')} solder mask`, R.pcb_matte_extra);
+    else if (colour !== 'green') add(`${colour} solder mask`, R.pcb_color_extra);
+    if (finish === 'hasl_lf') add('Lead-free HASL (RoHS)', R.pcb_leadfree_extra);
     if (finish === 'enig') add('ENIG gold finish', R.pcb_enig_extra);
-    if (stencil) add('SMT stencil', R.pcb_stencil);
+    if (minHole === '0.2') add('Fine drilling (0.2 mm holes)', R.pcb_small_hole);
+    if (via === 'plugged') add('Plugged vias (epoxy filled)', R.pcb_plugged_via);
+    if (gold) add('Gold fingers (hard gold, bevelled)', R.pcb_gold_fingers);
+    if (castellated) add('Castellated (half) holes', R.pcb_castellated);
+    if (impedance) add('Impedance control & coupon', R.pcb_impedance);
+    if (stencil) add('SMT stencil (framework-free)', R.pcb_stencil);
     if (assembly) add(`Assembly labour × ${qty} (components quoted separately)`, R.pcb_assembly_per_board * qty);
-    summary = `${qty} × ${layers}L ${w}×${h} mm, ${thickness} mm, ${colour}, ${finish.toUpperCase()}${stencil ? ', stencil' : ''}${assembly ? ', assembly' : ''}`;
+    if (express) add(`Express build (+${R.pcb_express_pct}%)`, lines.reduce((t, l) => t + l.amount, 0) * R.pcb_express_pct / 100);
+    const base = { 1: [4, 6], 2: [5, 7], 4: [7, 10], 6: [10, 14] }[layers];
+    const days = express ? [Math.max(2, base[0] - 2), base[1] - 3] : base;
+    info.build_days = `${days[0]}–${days[1]} working days${express ? ' (express)' : ''}`;
+    info.weight_kg = round2((area * qty * Number(thickness) * 0.185) / 100 + 0.05);
+    lead = info.build_days;
+    summary = `${qty} × ${layers}L ${material === 'aluminium' ? 'Al' : 'FR-4'} ${w}×${h} mm, ${thickness} mm, ${colour.replace('_', ' ')}, ${finish === 'enig' ? 'ENIG' : finish === 'hasl_lf' ? 'HASL-LF' : 'HASL'}, ${copper} oz${designs > 1 ? `, ${designs} designs` : ''}${gold ? ', gold fingers' : ''}${castellated ? ', castellated' : ''}${stencil ? ', stencil' : ''}${assembly ? ', assembly' : ''}${express ? ', EXPRESS' : ''}`;
   }
 
   if (service === 'laser' || service === 'acrylic') {
@@ -197,7 +229,7 @@ export function estimate(service, raw = {}) {
 
   const subtotal = round2(lines.reduce((s, l) => s + l.amount, 0));
   const gst = round2(subtotal * R.gst_rate / 100);
-  return { service, title: svc.title, quantity: qty, specs, lines, subtotal, gst, total: round2(subtotal + gst), lead: svc.lead, summary, info };
+  return { service, title: svc.title, quantity: qty, specs, lines, subtotal, gst, total: round2(subtotal + gst), lead, summary, info };
 }
 
 export function publicCatalog() {

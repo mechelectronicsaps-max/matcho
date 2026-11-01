@@ -1,5 +1,5 @@
 // Drovox stockist panel: fulfilment queue, products & stock, China import batches with landed cost, reorder planning.
-import { $, $$, api, esc, money, num, toast, modal, badge, ago, art, formData, downloadCsv, downloadAuthed, dt } from './common.js';
+import { $, $$, api, esc, money, num, toast, modal, badge, ago, art, formData, downloadCsv, downloadAuthed, dt, getToken } from './common.js';
 import { startPanel, head, kpi } from './panel.js';
 import { openOrder } from './orders-ui.js';
 import { LABEL_SIZES, printProductLabels, printBoxLabels, printJobLabel } from './labels.js';
@@ -367,13 +367,17 @@ async function jobs(el, params) {
 // ------------------------------------------------------------------ fabrication services (3D print, PCB, cutting, battery)
 const SVC_LABEL = { new: 'New', quoted: 'Quote sent', approved: 'Approved', in_production: 'In production', ready: 'Ready', delivered: 'Delivered', cancelled: 'Cancelled' };
 const SVC_COLOR = { new: 'amber', quoted: 'blue', approved: 'violet', in_production: 'teal', ready: 'green', delivered: '', cancelled: 'red' };
-const SVC_ICON = { print3d: '🖨️', pcb: '🟩', laser: '🔥', acrylic: '💎', battery: '🔋' };
+const SVC_ICON = { industrial3d: '🏭', print3d: '🖨️', metal_laser: '⚙️', pcb: '🟩', laser: '🔥', acrylic: '💎', battery: '🔋' };
 async function services(el, params) {
-  const st = params.get('status') || '';
-  const d = await api(`${B}/services${st ? `?status=${st}` : ''}`);
-  el.innerHTML = `${head('Service jobs', '<a class="btn" href="/#/services" target="_blank">View services page ↗</a>')}
-    <p class="small muted">3D printing, PCB, laser & acrylic cutting and battery-pack requests from the website. Check the files, send the final quote (customer gets it on WhatsApp and can approve it online), then move the job through production.</p>
-    <div class="tabs"><a href="#/services" class="${!st ? 'on' : ''}">All</a>${d.statuses.map((s) => `<a href="#/services?status=${s}" class="${st === s ? 'on' : ''}">${SVC_LABEL[s]} <b>${d.counts[s] || 0}</b></a>`).join('')}</div>
+  const st = params.get('status') || ''; const svc = params.get('service') || '';
+  const q = new URLSearchParams({ ...(st ? { status: st } : {}), ...(svc ? { service: svc } : {}) });
+  const d = await api(`${B}/services?${q}`);
+  const link = (o) => { const p = new URLSearchParams({ ...(svc ? { service: svc } : {}), ...(st ? { status: st } : {}), ...o }); for (const [k, v] of [...p]) if (!v) p.delete(k); return `#/services${p.toString() ? `?${p}` : ''}`; };
+  const cur = d.services.find((x) => x.id === svc);
+  el.innerHTML = `${head(cur ? `${cur.icon} ${esc(cur.title)} orders` : 'Service orders', '<a class="btn" href="/#/services" target="_blank">View services page ↗</a>')}
+    <div class="row" style="margin-bottom:12px;gap:8px"><a class="chip ${!svc ? 'on' : ''}" href="${link({ service: '' })}">All services <b>${d.all_open}</b></a>${d.services.map((x) => `<a class="chip ${svc === x.id ? 'on' : ''}" href="${link({ service: x.id })}">${x.icon} ${esc(x.short)} <b>${d.by_service[x.id] || 0}</b></a>`).join('')}</div>
+    <p class="small muted">Counts are open jobs. Check the files${svc === 'pcb' || !svc ? ' (PCB orders include a rendered Gerber view)' : ''}, send the final quote (the customer gets it on WhatsApp and can approve online), then move the job through production.</p>
+    <div class="tabs"><a href="${link({ status: '' })}" class="${!st ? 'on' : ''}">All</a>${d.statuses.map((s) => `<a href="${link({ status: s })}" class="${st === s ? 'on' : ''}">${SVC_LABEL[s]} <b>${d.counts[s] || 0}</b></a>`).join('')}</div>
     <div class="card table-wrap"><table class="t"><thead><tr><th>Request</th><th>Customer</th><th>Job</th><th class="r">Estimate</th><th class="r">Quote</th><th>Status</th></tr></thead><tbody>
     ${d.rows.map((r) => `<tr class="click" data-s="${r.id}"><td><b>${esc(r.req_no)}</b><div class="tiny muted">${ago(r.created_at)}</div></td><td>${esc(r.name)}<div class="tiny muted">${esc(r.phone)}</div></td>
       <td class="small">${SVC_ICON[r.service] || ''} <b>${esc(r.title)}</b> × ${r.quantity}${r.files.length ? ` · 📎 ${r.files.length}` : ''}</td><td class="r">${money(r.estimate)}</td><td class="r">${r.quoted_price ? money(r.quoted_price) : '—'}</td>
@@ -386,14 +390,28 @@ async function serviceJob(id, reload) {
   const m = modal(`<div class="row between"><div><h2 style="margin:0">${SVC_ICON[r.service] || ''} ${esc(r.req_no)}</h2><div class="small muted">${esc(r.title)} · ${dt(r.created_at)}</div></div><span class="badge ${SVC_COLOR[r.status]}">${SVC_LABEL[r.status]}</span></div>
     <div class="grid g2" style="margin-top:12px">
       <div class="card flat"><b>Customer</b><div>${esc(r.name)} · <a class="link" href="tel:${esc(r.phone)}">${esc(r.phone)}</a></div>${r.email ? `<div class="small muted">${esc(r.email)}</div>` : ''}${r.notes ? `<div class="small" style="margin-top:6px">📝 ${esc(r.notes)}</div>` : ''}</div>
-      <div class="card flat"><b>Specification</b><div class="small">Quantity: ${r.quantity}<br>${Object.entries(r.specs).map(([k, v]) => `${esc(k.replace(/_/g, ' '))}: <b>${esc(typeof v === 'boolean' ? (v ? 'yes' : 'no') : v)}</b>`).join('<br>')}</div></div>
+      <div class="card flat"><b>Specification</b><div class="small">Quantity: ${r.quantity}<br>${Object.entries(r.specs).filter(([k]) => k !== 'gerber').map(([k, v]) => `${esc(k.replace(/_/g, ' '))}: <b>${esc(typeof v === 'boolean' ? (v ? 'yes' : 'no') : v)}</b>`).join('<br>')}</div></div>
     </div>
     <div class="card flat" style="margin-top:12px"><b>Estimate shown to customer</b>${r.estimate_lines.map((l) => `<div class="row between small"><span>${esc(l.label)}</span><span>${money(l.amount, 2)}</span></div>`).join('')}<div class="row between"><b>Total incl. GST</b><b>${money(r.estimate, 2)}</b></div></div>
+    ${r.specs.gerber ? `<div class="card flat" style="margin-top:12px"><div class="row between"><b>Gerber view</b><div class="row"><button type="button" class="chip on" data-gs="top">Top</button><button type="button" class="chip" data-gs="bottom">Bottom</button></div></div>
+      <div style="background:#0b1220;border-radius:12px;padding:14px;margin-top:8px;display:grid;place-items:center;min-height:200px"><img id="gimg" alt="Rendered PCB" style="max-width:100%;max-height:360px"></div>
+      <div class="small" style="margin-top:6px">Detected: <b>${r.specs.gerber.width_mm} × ${r.specs.gerber.height_mm} mm</b>, ${r.specs.gerber.layers} layers, ${r.specs.gerber.drill_hits} holes, ${r.specs.gerber.files} Gerber files${(r.specs.width_mm !== r.specs.gerber.width_mm || r.specs.height_mm !== r.specs.gerber.height_mm || r.specs.layers !== r.specs.gerber.layers) ? ' — <b style="color:var(--amber)">differs from the ordered spec, check before quoting</b>' : ''}</div>
+      ${(r.specs.gerber.warnings || []).map((w) => `<div class="small" style="color:var(--amber)">⚠ ${esc(w)}</div>`).join('')}</div>` : ''}
     ${r.files.length ? `<div class="card flat" style="margin-top:12px"><b>Files</b>${r.files.map((f, i) => `<div class="row between small"><span>📎 ${esc(f.name)} <span class="muted">(${(f.size / 1048576).toFixed(2)} MB)</span></span><button class="btn sm" data-f="${i}">Download</button></div>`).join('')}</div>` : ''}
     <form class="form two" id="qf" style="margin-top:12px"><label class="f">Final price ₹ incl. GST<input name="quoted_price" type="number" step="0.01" value="${r.quoted_price ?? Math.round(r.estimate)}"></label>
       <label class="f">Lead time (days)<input name="lead_days" type="number" value="${r.lead_days ?? ''}"></label>
       <label class="f full">Internal notes<textarea name="staff_notes" rows="2">${esc(r.staff_notes || '')}</textarea></label>
       <div class="full row"><button type="button" class="btn" id="save">Save</button>${next.map((s) => `<button type="button" class="btn ${s === 'cancelled' ? 'danger' : 'primary'}" data-to="${s}">${s === 'quoted' ? '📨 Send quote on WhatsApp' : s === 'approved' ? 'Mark approved (customer said yes)' : s === 'in_production' ? '⚙️ Start production' : s === 'ready' ? '✅ Mark ready' : s === 'delivered' ? '📦 Delivered' : 'Cancel'}</button>`).join('')}</div></form>`, { wide: true });
+  if (r.specs.gerber) {
+    const urls = {};
+    const showSide = async (side) => {
+      try {
+        if (!urls[side]) { const t = getToken(); const resp = await fetch(`/api${B}/services/${r.id}/gerber/${side}`, { headers: { Authorization: `Bearer ${t}` } }); if (!resp.ok) throw new Error('Render not available'); urls[side] = URL.createObjectURL(await resp.blob()); }
+        $('#gimg', m.el).src = urls[side]; $$('[data-gs]', m.el).forEach((x) => x.classList.toggle('on', x.dataset.gs === side));
+      } catch (e) { toast(e.message, 'err'); }
+    };
+    $$('[data-gs]', m.el).forEach((b) => { b.onclick = () => showSide(b.dataset.gs); }); showSide('top');
+  }
   $$('[data-f]', m.el).forEach((b) => { b.onclick = () => downloadAuthed(`${B}/services/${r.id}/files/${b.dataset.f}`, r.files[b.dataset.f].name).catch((e) => toast(e.message, 'err')); });
   const send = async (status) => {
     try {
@@ -412,7 +430,7 @@ startPanel({
   switchLink: { href: '/master', label: '🛡️ Master panel' },
   nav: [
     { id: 'dashboard', label: 'Overview', icon: '📊' }, { id: 'orders', label: 'Orders & dispatch', icon: '📦' },
-    { id: 'jobs', label: 'Custom orders', icon: '🛠️' }, { id: 'services', label: 'Service jobs (3D/PCB/laser/battery)', icon: '🖨️' },
+    { id: 'jobs', label: 'Custom orders', icon: '🛠️' }, { id: 'services', label: 'Service orders', icon: '🖨️' },
     { id: 'scan', label: 'Scan stock in / out', icon: '📷' },
     { id: 'products', label: 'Products & stock', icon: '🗃️' }, { id: 'categories', label: 'Categories & SKU codes', icon: '🗂️' },
     { id: 'labels', label: 'Labels & stickers', icon: '🏷️' }, { id: 'imports', label: 'Import batches', icon: '🚢' },

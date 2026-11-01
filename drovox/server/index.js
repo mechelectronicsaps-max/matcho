@@ -27,6 +27,7 @@ export function createApp() {
   app.post('/api/webhooks/razorpay', express.raw({ type: '*/*', limit: '1mb' }), razorpayWebhook);
   // Service requests carry design files (STL, Gerber, DXF…) as base64, so they get a larger limit.
   app.use('/api/services/requests', express.json({ limit: '130mb' }));
+  app.use('/api/services/pcb', express.json({ limit: '40mb' }));
   app.use(['/api/jobs', '/api/admin/content'], express.json({ limit: '8mb' }));
   app.use(express.json({ limit: '1mb' }));
   app.use('/api', attachUser);

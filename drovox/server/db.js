@@ -431,6 +431,8 @@ export const DEFAULT_SETTINGS = {
     pla_per_g: 6, petg_per_g: 8, abs_per_g: 8, tpu_per_g: 12, resin_per_g: 20, print_setup: 50, print_min: 149,
     // PCB fabrication: setup per design + per cm² per board
     pcb_setup: 600, pcb_1l_cm2: 0.9, pcb_2l_cm2: 1.3, pcb_4l_cm2: 3.2, pcb_color_extra: 300, pcb_enig_extra: 800, pcb_stencil: 450, pcb_assembly_per_board: 150,
+    pcb_6l_cm2: 5.5, pcb_setup_multilayer: 1500, pcb_aluminium_pct: 40, pcb_2oz_pct: 35, pcb_thickness_pct: 15, pcb_design_extra: 250, pcb_panel_fee: 300, pcb_matte_extra: 500,
+    pcb_leadfree_extra: 300, pcb_small_hole: 500, pcb_plugged_via: 700, pcb_gold_fingers: 900, pcb_castellated: 900, pcb_impedance: 1200, pcb_express_pct: 50,
     // Laser / acrylic cutting: material per cm² of sheet + cutting per metre + engraving per cm²
     acrylic_2mm_cm2: 0.12, acrylic_3mm_cm2: 0.16, acrylic_5mm_cm2: 0.28, acrylic_8mm_cm2: 0.45,
     mdf_3mm_cm2: 0.05, mdf_6mm_cm2: 0.09, ply_4mm_cm2: 0.08, cardboard_cm2: 0.02,

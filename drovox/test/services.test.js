@@ -108,3 +108,33 @@ test('partner program: apply → approve → partner discount at checkout', asyn
   await api('PUT', `/api/admin/partners/user/${reg.data.user.id}`, { revoke: true }, ad);
   assert.equal((await api('POST', '/api/cart/quote', { items: [{ product_id: uno, qty: 2 }], state_code: '27' }, tok)).data.partner_discount, 0);
 });
+
+test('PCB: Gerber ZIP is rendered, measured and required for orders', async () => {
+  const zip = fs.readFileSync(new URL('./fixtures/sample-gerber.zip', import.meta.url)).toString('base64');
+  const g = (await api('POST', '/api/services/pcb/gerber', { name: 'board.zip', data: zip })).data;
+  assert.equal(g.width_mm, 50); assert.equal(g.height_mm, 30); assert.equal(g.layers, 2);
+  assert.equal(g.has_outline, true); assert.equal(g.drill_hits, 2);
+  assert.match(g.top_svg, /^<svg/); assert.match(g.bottom_svg, /^<svg/);
+  assert.equal((await api('POST', '/api/services/pcb/gerber', { name: 'x.zip', data: Buffer.from('not a zip').toString('base64') })).status, 400);
+  // full option pricing
+  const e = (await api('POST', '/api/services/estimate', { service: 'pcb', layers: 4, width_mm: 50, height_mm: 30, quantity: 10, finish: 'hasl_lf', copper: '2', gold_fingers: true, impedance: true, build: 'express' })).data;
+  assert.ok(e.lines.some((l) => l.label.startsWith('Multilayer engineering')));
+  assert.ok(e.lines.some((l) => l.label.includes('2 oz')));
+  assert.ok(e.lines.some((l) => l.label.startsWith('Express build')));
+  assert.match(e.info.build_days, /express/);
+  assert.equal((await api('POST', '/api/services/estimate', { service: 'pcb', material: 'aluminium', layers: 2, width_mm: 50, height_mm: 30 })).status, 400);
+  // ordering needs the Gerber ZIP; the order keeps the render and detected size
+  const tok = await login('demo@drovox.in', 'demo123');
+  const no = await api('POST', '/api/services/requests', { service: 'pcb', width_mm: 50, height_mm: 30, name: 'Demo', phone: '9876543210' }, tok);
+  assert.equal(no.status, 400);
+  const r = await api('POST', '/api/services/requests', { service: 'pcb', layers: 2, width_mm: 50, height_mm: 30, quantity: 5, name: 'Demo', phone: '9876543210', files: [{ name: 'board.zip', data: zip }] }, tok);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const st = await login('stockist@drovox.in', 'stock123');
+  const list = (await api('GET', '/api/stock/services?service=pcb', null, st)).data;
+  assert.ok(list.rows.every((x) => x.service === 'pcb'));
+  assert.ok(list.by_service.pcb >= 1);
+  const job = list.rows.find((x) => x.req_no === r.data.req_no);
+  assert.equal(job.specs.gerber.width_mm, 50);
+  const svg = await api('GET', `/api/stock/services/${job.id}/gerber/top`, null, st);
+  assert.equal(svg.status, 200); assert.match(svg.data, /<svg/);
+});

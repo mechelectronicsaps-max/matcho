@@ -32,15 +32,26 @@ const F = {
     { name: 'quantity', label: 'Quantity', type: 'number', value: 1, min: 1 },
   ],
   pcb: [
-    { name: 'layers', label: 'Layers', type: 'select', options: [['2', '2 layers'], ['1', '1 layer'], ['4', '4 layers']] },
-    { name: 'width_mm', label: 'Board width (mm)', type: 'number', value: 50, min: 5 },
-    { name: 'height_mm', label: 'Board height (mm)', type: 'number', value: 50, min: 5 },
-    { name: 'quantity', label: 'Quantity (boards)', type: 'number', value: 5, min: 1 },
-    { name: 'thickness', label: 'Thickness (mm)', type: 'select', options: [['1.6', '1.6'], ['0.8', '0.8'], ['1.0', '1.0'], ['1.2', '1.2'], ['2.0', '2.0']] },
-    { name: 'colour', label: 'Solder mask', type: 'select', options: [['green', 'Green'], ['black', 'Black'], ['blue', 'Blue'], ['red', 'Red'], ['white', 'White'], ['yellow', 'Yellow']] },
-    { name: 'finish', label: 'Surface finish', type: 'select', options: [['hasl', 'HASL (standard)'], ['enig', 'ENIG (gold)']] },
+    { name: 'material', label: 'Base material', type: 'select', options: [['fr4', 'FR-4 (TG130–140)'], ['aluminium', 'Aluminium (1-layer, LED)']] },
+    { name: 'layers', label: 'Layers', type: 'select', options: [['2', '2 layers'], ['1', '1 layer'], ['4', '4 layers'], ['6', '6 layers']] },
+    { name: 'width_mm', label: 'Width (mm)', type: 'number', value: 100, min: 5 },
+    { name: 'height_mm', label: 'Height (mm)', type: 'number', value: 100, min: 5 },
+    { name: 'quantity', label: 'PCB quantity', type: 'select', options: [5, 10, 15, 20, 25, 30, 50, 75, 100, 150, 200, 250, 300, 400, 500, 1000].map((n) => [String(n), String(n)]) },
+    { name: 'designs', label: 'Different designs', type: 'select', options: [1, 2, 3, 4, 5, 6, 8, 10].map((n) => [String(n), String(n)]) },
+    { name: 'delivery', label: 'Delivery format', type: 'select', options: [['single', 'Single PCB'], ['panel_customer', 'Panel by customer'], ['panel_drovox', 'Panel by Drovox']] },
+    { name: 'thickness', label: 'PCB thickness (mm)', type: 'select', options: [['1.6', '1.6'], ['0.4', '0.4'], ['0.6', '0.6'], ['0.8', '0.8'], ['1.0', '1.0'], ['1.2', '1.2'], ['2.0', '2.0']] },
+    { name: 'colour', label: 'Solder mask colour', type: 'select', options: [['green', 'Green'], ['red', 'Red'], ['yellow', 'Yellow'], ['blue', 'Blue'], ['white', 'White'], ['black', 'Black'], ['purple', 'Purple'], ['matte_black', 'Matte black'], ['matte_green', 'Matte green']] },
+    { name: 'finish', label: 'Surface finish', type: 'select', options: [['hasl', 'HASL with lead'], ['hasl_lf', 'Lead-free HASL (RoHS)'], ['enig', 'ENIG (gold)']] },
+    { name: 'copper', label: 'Outer copper weight', type: 'select', options: [['1', '1 oz'], ['2', '2 oz']] },
+    { name: 'via', label: 'Via covering', type: 'select', options: [['tented', 'Tented'], ['untented', 'Untented'], ['plugged', 'Plugged (epoxy)']] },
+    { name: 'min_hole', label: 'Min hole size', type: 'select', options: [['0.3', '0.3 mm'], ['0.25', '0.25 mm'], ['0.2', '0.2 mm']] },
+    { name: 'build', label: 'Build time', type: 'select', options: [['standard', 'Standard'], ['express', 'Express']] },
+    { name: 'gold_fingers', label: 'Gold fingers', type: 'check' },
+    { name: 'castellated', label: 'Castellated (half) holes', type: 'check' },
+    { name: 'impedance', label: 'Impedance control', type: 'check', show: (v) => Number(v.layers) >= 4 },
+    { name: 'remove_mark', label: 'Remove order number from the board', type: 'check' },
     { name: 'stencil', label: 'Add SMT stencil', type: 'check' },
-    { name: 'assembly', label: 'I need assembly (we quote components separately)', type: 'check' },
+    { name: 'assembly', label: 'I need assembly (components quoted separately)', type: 'check' },
   ],
   laser: [
     { name: 'material', label: 'Material', type: 'select', options: [['acr3', 'Acrylic 3 mm'], ['acr2', 'Acrylic 2 mm'], ['acr5', 'Acrylic 5 mm'], ['acr8', 'Acrylic 8 mm'], ['mdf3', 'MDF 3 mm'], ['mdf6', 'MDF 6 mm'], ['ply4', 'Plywood 4 mm'], ['cardboard', 'Cardboard 3 mm'], ['leather', 'Leather'], ['eva', 'EVA foam']] },
@@ -105,8 +116,12 @@ export async function pageServices(app, S, parts, setTitle) {
       <div class="card"><h1 style="margin:0 0 6px">${svc.icon} ${esc(svc.title)}</h1><p class="muted">${esc(svc.blurb)}</p>
         <div class="grid g2" style="margin:10px 0 16px"><div><div class="f">Materials</div><ul class="small" style="margin:6px 0 0;padding-left:18px">${(svc.materials || []).map((m) => `<li>${esc(m)}</li>`).join('')}</ul></div>
           <div><div class="f">Capabilities</div><ul class="small" style="margin:6px 0 0;padding-left:18px">${(svc.features || []).map((m) => `<li>${esc(m)}</li>`).join('')}<li>Usually ready in ${esc(svc.lead)}</li></ul></div></div>
-        <h3>Configure & get an instant price</h3><div class="form two">${fields.map(field).join('')}</div></div>
-      <div class="card"><h3>Design files</h3><p class="small muted">Accepted: ${svc.files.map((x) => `.${x}`).join(' ')} · up to 5 files, 20 MB each. ${id === 'battery' ? 'Optional: a photo or datasheet.' : 'Zip several files together if needed.'}</p>
+        <h3>${id === 'pcb' ? '2. PCB specification' : 'Configure & get an instant price'}</h3><div class="form two">${fields.map(field).join('')}</div></div>
+      ${id === 'pcb' ? `<div class="card" id="gcard"><h3>1. Add Gerber file</h3><p class="small muted">Upload a .zip of your Gerber (RS-274X) and drill files from KiCad, EasyEDA, Eagle or Altium. We render the board and fill in its size and layer count automatically. Max 25 MB.</p>
+        <label class="btn primary" style="cursor:pointer">⬆ Add Gerber ZIP<input type="file" id="gerber" accept=".zip" hidden></label> <span id="gstat" class="small muted"></span>
+        <div id="gview" class="hidden" style="margin-top:14px"><div class="row" style="margin-bottom:8px"><button type="button" class="chip on" data-side="top">Top</button><button type="button" class="chip" data-side="bottom">Bottom</button><span class="small muted" id="ginfo"></span></div>
+          <div style="background:#0b1220;border-radius:12px;padding:16px;display:grid;place-items:center;min-height:260px"><img id="gimg" alt="Rendered PCB" style="max-width:100%;max-height:420px"></div><div id="gwarn"></div><div class="tiny muted" id="glayers" style="margin-top:6px"></div></div></div>` : ''}
+      <div class="card ${id === 'pcb' ? 'hidden' : ''}"><h3>Design files</h3><p class="small muted">Accepted: ${svc.files.map((x) => `.${x}`).join(' ')} · up to 5 files, 20 MB each. ${id === 'battery' ? 'Optional: a photo or datasheet.' : 'Zip several files together if needed.'}</p>
         <input type="file" id="files" multiple accept="${svc.files.map((x) => `.${x}`).join(',')}"><div id="flist" class="small" style="margin-top:6px"></div></div>
       <div class="card"><h3>Your details</h3><div class="form two"><label class="f">Name<input name="name" required value="${esc(S.user?.name || '')}"></label><label class="f">WhatsApp number<input name="phone" required inputmode="tel" value="${esc(S.user?.phone || '')}"></label>
         <label class="f">Email (optional)<input name="email" type="email" value="${esc(S.user?.email || '')}"></label><div></div>
@@ -115,6 +130,8 @@ export async function pageServices(app, S, parts, setTitle) {
     </form>
     <div class="sticky"><div class="card" id="est"><div class="skeleton" style="min-height:220px"></div></div></div></div>`;
   const form = $('#sf');
+  let gerberFile = null; let gerber = null;
+  if (id === 'pcb') form.prepend($('#gcard'));   // Gerber upload comes first, like PCB fab sites
   const values = () => { const v = formData(form); for (const f of fields) if (f.type === 'check') v[f.name] = !!v[f.name]; return v; };
   const toggle = () => {
     const v = values();
@@ -139,7 +156,9 @@ export async function pageServices(app, S, parts, setTitle) {
         $('#est').innerHTML = `<h3>Instant estimate</h3><div class="summary">${last.lines.map((l) => `<div class="r-line"><span>${esc(l.label)}</span><span class="nowrap">${money(l.amount, 2)}</span></div>`).join('')}
           <div class="r-line"><span>GST ${cat.gst_rate}%</span><span>${money(last.gst, 2)}</span></div><div class="r-line total"><span>Estimate</span><span>${money(last.total, 2)}</span></div></div>
           ${info.nominal_v ? `<div class="banner teal" style="margin-top:10px"><div class="small"><b>${info.nominal_v} V · ${info.capacity_ah} Ah · ${info.energy_wh} Wh</b><br>${info.cells} cells · approx. ${info.weight_kg} kg</div></div>` : ''}
-          ${info.area_cm2 ? `<div class="small muted" style="margin-top:8px">Board area ${info.area_cm2} cm²</div>` : ''}
+          ${info.area_cm2 ? `<div class="small muted" style="margin-top:8px">Board area ${info.area_cm2} cm² · total ${info.total_area_m2} m²${info.weight_kg ? ` · approx. ${info.weight_kg} kg` : ''}</div>` : ''}
+          ${info.build_days ? `<div class="small" style="margin-top:6px">🏭 Build time: <b>${esc(info.build_days)}</b></div>` : ''}
+          ${id === 'pcb' && !gerberFile ? '<div class="small" style="margin-top:6px;color:var(--amber)">Upload your Gerber ZIP to order — the price above uses the size you entered.</div>' : ''}
           ${info.note ? `<div class="small" style="margin-top:8px;color:var(--amber)">${esc(info.note)}</div>` : ''}
           <div class="small muted" style="margin-top:8px">⏱ Usually ready in ${esc(last.lead)}. Final price is confirmed after we check your files.</div>
           <button class="btn primary lg block" id="send" style="margin-top:14px">Request final quote</button>`;
@@ -149,12 +168,14 @@ export async function pageServices(app, S, parts, setTitle) {
   };
   const submit = async () => {
     if (!form.reportValidity()) return;
-    const files = [...$('#files').files];
+    const files = id === 'pcb' ? (gerberFile ? [gerberFile] : []) : [...$('#files').files];
+    if (id === 'pcb' && !gerberFile) { toast('Add your Gerber ZIP first', 'err'); $('#gcard').scrollIntoView({ behavior: 'smooth' }); return; }
     if (files.length > 5) return toast('Upload at most 5 files', 'err');
     const big = files.find((f) => f.size > 20 * 1024 * 1024); if (big) return toast(`${big.name} is larger than 20 MB`, 'err');
     const btn = $('#send'); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Uploading…';
     try {
-      const enc = await Promise.all(files.map(async (f) => ({ name: f.name, data: await readFile(f) })));
+      // the Gerber ZIP was already read for the viewer; other files are read now
+      const enc = await Promise.all(files.map(async (f) => (f instanceof Blob ? { name: f.name, data: await readFile(f) } : f)));
       const r = await api('/services/requests', { method: 'POST', body: { service: id, ...values(), files: enc } });
       app.innerHTML = `<div class="empty card"><div class="big">✅</div><h2>Request ${esc(r.req_no)} received</h2><p>Estimate ${money(r.estimate.total, 2)} incl. GST. We’ll check your design and send the final quote on WhatsApp${S.user ? ' — you can also track and approve it in My Account' : ''}.</p>
         <div class="row" style="justify-content:center">${S.user ? '<a class="btn primary" href="#/account">My Account</a>' : ''}<a class="btn" href="#/services">Back to services</a></div></div>`;
@@ -162,6 +183,26 @@ export async function pageServices(app, S, parts, setTitle) {
     } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Request final quote'; }
   };
   form.addEventListener('input', refresh); form.addEventListener('change', refresh);
+  // ---- Gerber viewer (PCB)
+  const svgUrl = (svg) => `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
+  $$('[data-side]', form).forEach((b) => { b.onclick = () => { if (!gerber) return; $$('[data-side]', form).forEach((x) => x.classList.toggle('on', x === b)); $('#gimg').src = svgUrl(b.dataset.side === 'bottom' ? gerber.bottom_svg : gerber.top_svg); }; });
+  $('#gerber')?.addEventListener('change', async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    if (f.size > 25 * 1024 * 1024) return toast('Gerber ZIP must be under 25 MB', 'err');
+    $('#gstat').innerHTML = '<span class="spinner"></span> Reading your Gerber files…';
+    try {
+      const data = await readFile(f);
+      gerber = await api('/services/pcb/gerber', { method: 'POST', body: { name: f.name, data } });
+      gerberFile = { name: f.name, data };
+      form.elements.width_mm.value = gerber.width_mm; form.elements.height_mm.value = gerber.height_mm; form.elements.layers.value = String(gerber.layers);
+      $('#gstat').innerHTML = `✅ <b>${esc(f.name)}</b>`;
+      $('#ginfo').innerHTML = `<b>${gerber.width_mm} × ${gerber.height_mm} mm</b> · ${gerber.layers} layer${gerber.layers > 1 ? 's' : ''}${gerber.drill_hits ? ` · ${gerber.drill_hits} holes` : ''}`;
+      $('#gimg').src = svgUrl(gerber.top_svg); $('#gview').classList.remove('hidden');
+      $('#gwarn').innerHTML = gerber.warnings.map((w) => `<div class="small" style="color:var(--amber);margin-top:6px">⚠ ${esc(w)}</div>`).join('');
+      $('#glayers').textContent = `Layers found: ${gerber.files.map((x) => `${x.side !== 'all' ? x.side + ' ' : ''}${x.type}`).join(', ')}`;
+      refresh();
+    } catch (err) { gerber = null; gerberFile = null; $('#gview').classList.add('hidden'); $('#gstat').innerHTML = `<span style="color:var(--red)">${esc(err.message)}</span>`; }
+  });
   $('#files').onchange = (e) => { $('#flist').innerHTML = [...e.target.files].map((f) => `📎 ${esc(f.name)} <span class="muted">(${(f.size / 1048576).toFixed(1)} MB)</span>`).join('<br>'); };
   refresh();
 }
