@@ -1,6 +1,6 @@
 // Storefront + customer account API.
 import express from 'express';
-import { all, get, run, getSetting } from '../db.js';
+import { all, get, run, getSetting, setSetting } from '../db.js';
 import { hashPassword, verifyPassword, signToken, publicUser, requireUser, audit, makeReferralCode, can } from '../auth.js';
 import { quote, STATES, parseTiers, unitPriceFor, loyaltyTier, QuoteError, validGstin } from '../pricing.js';
 import { trending, boughtTogether, recommendFor, socialProof, scoreLead } from '../services/engine.js';
@@ -10,6 +10,7 @@ import { addPoints, dailyCheckin } from '../services/loyalty.js';
 import { buildProject } from '../services/ai.js';
 
 export const store = express.Router();
+export const validDate = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) ? String(d) : null);
 const sid = (req) => String(req.headers['x-session'] || '').slice(0, 64) || null;
 const logEvent = (req, type, productId, query) =>
   run('INSERT INTO events(session_id, user_id, type, product_id, query) VALUES (?,?,?,?,?)', sid(req), req.user?.id ?? null, type, productId ?? null, query ?? null);
@@ -155,17 +156,38 @@ store.get('/cart/saved', requireUser, (req, res) => {
   res.json(c ? JSON.parse(c.items) : []);
 });
 
+// ---- first-run setup: creates the owner account on an empty system -------------------------------
+const needsSetup = () => !get(`SELECT 1 FROM users WHERE role = 'admin' AND active = 1`);
+store.get('/setup', (_req, res) => res.json({ needs_setup: needsSetup() }));
+store.post('/setup', (req, res) => {
+  if (!needsSetup()) return res.status(403).json({ error: 'Setup is already complete — sign in instead' });
+  const b = req.body || {};
+  if (!b.name?.trim() || !b.email?.includes('@') || String(b.password || '').length < 8) return res.status(400).json({ error: 'Your name, a valid email and a password of at least 8 characters are required' });
+  if (b.gstin && !validGstin(b.gstin)) return res.status(400).json({ error: 'GSTIN is not valid' });
+  if (get('SELECT 1 FROM users WHERE email = ?', b.email.trim())) return res.status(409).json({ error: 'That email is already registered' });
+  const s = getSetting('store');
+  setSetting('store', { ...s, name: b.store_name?.trim() || s.name, legal_name: b.legal_name?.trim() || b.store_name?.trim() || s.legal_name,
+    gstin: b.gstin ? String(b.gstin).toUpperCase() : '', state_code: b.gstin ? String(b.gstin).slice(0, 2) : (b.state_code || s.state_code),
+    address: b.address || '', support_phone: b.support_phone || b.phone || '', support_email: b.support_email || b.email.trim() });
+  const r = run(`INSERT INTO users(name, email, phone, password_hash, role, referral_code, source) VALUES (?,?,?,?, 'admin', ?, 'setup')`,
+    b.name.trim(), b.email.trim(), b.phone || null, hashPassword(b.password), makeReferralCode(b.name));
+  const user = get('SELECT * FROM users WHERE id = ?', r.lastInsertRowid);
+  req.user = user; audit(req, 'system.setup', 'user', user.id, { store: b.store_name });
+  res.json({ token: signToken(user), user: publicUser(user) });
+});
+
 // ---- auth & account -------------------------------------------------------------------------
 store.post('/auth/register', (req, res) => {
-  const { name, email, phone, password, referral_code, company, gstin } = req.body || {};
+  const { name, email, phone, password, referral_code, company, gstin, dob, anniversary, city } = req.body || {};
   if (!name?.trim() || !email?.includes('@') || String(password || '').length < 6) return res.status(400).json({ error: 'Name, a valid email and a 6+ character password are required' });
   if (gstin && !validGstin(gstin)) return res.status(400).json({ error: 'GSTIN is not valid' });
   if (get('SELECT 1 FROM users WHERE email = ?', email.trim())) return res.status(409).json({ error: 'An account with this email already exists' });
   const referrer = referral_code ? get('SELECT * FROM users WHERE referral_code = ? COLLATE NOCASE', String(referral_code).trim()) : null;
   if (referral_code && !referrer) return res.status(400).json({ error: 'Referral code not found' });
   const L = getSetting('loyalty');
-  const r = run(`INSERT INTO users(name, email, phone, password_hash, role, referral_code, referred_by, company, gstin, state_code) VALUES (?,?,?,?, 'customer', ?,?,?,?,?)`,
-    name.trim(), email.trim(), phone || null, hashPassword(password), makeReferralCode(name), referrer?.id ?? null, company || null, gstin ? gstin.toUpperCase() : null, gstin ? gstin.slice(0, 2) : null);
+  const r = run(`INSERT INTO users(name, email, phone, password_hash, role, referral_code, referred_by, company, gstin, state_code, dob, anniversary, city) VALUES (?,?,?,?, 'customer', ?,?,?,?,?,?,?,?)`,
+    name.trim(), email.trim(), phone || null, hashPassword(password), makeReferralCode(name), referrer?.id ?? null, company || null, gstin ? gstin.toUpperCase() : null, gstin ? gstin.slice(0, 2) : null,
+    validDate(dob), validDate(anniversary), city || null);
   const uid = Number(r.lastInsertRowid);
   addPoints(uid, L.signup_bonus, 'signup', null);
   if (referrer) { run('INSERT INTO referrals(referrer_id, referee_id) VALUES (?,?)', referrer.id, uid); addPoints(uid, L.referee_bonus, 'referred', referrer.referral_code); }
@@ -190,10 +212,11 @@ store.get('/me', requireUser, (req, res) => {
     can: { stock: can(req.user, 'stock'), admin: req.user.role !== 'customer' && req.user.role !== 'stockist' } });
 });
 store.put('/me', requireUser, (req, res) => {
-  const { name, phone, company, gstin, whatsapp_opt_in, password } = req.body || {};
+  const { name, phone, company, gstin, whatsapp_opt_in, password, dob, anniversary, city } = req.body || {};
   if (gstin && !validGstin(gstin)) return res.status(400).json({ error: 'GSTIN is not valid' });
-  run(`UPDATE users SET name = COALESCE(?, name), phone = COALESCE(?, phone), company = ?, gstin = ?, whatsapp_opt_in = COALESCE(?, whatsapp_opt_in) WHERE id = ?`,
-    name || null, phone || null, company || null, gstin ? gstin.toUpperCase() : null, whatsapp_opt_in == null ? null : whatsapp_opt_in ? 1 : 0, req.user.id);
+  run(`UPDATE users SET name = COALESCE(?, name), phone = COALESCE(?, phone), company = ?, gstin = ?, whatsapp_opt_in = COALESCE(?, whatsapp_opt_in), dob = ?, anniversary = ?, city = ? WHERE id = ?`,
+    name || null, phone || null, company || null, gstin ? gstin.toUpperCase() : null, whatsapp_opt_in == null ? null : whatsapp_opt_in ? 1 : 0,
+    dob === undefined ? req.user.dob : validDate(dob), anniversary === undefined ? req.user.anniversary : validDate(anniversary), city === undefined ? req.user.city : (city || null), req.user.id);
   if (password) { if (String(password).length < 6) return res.status(400).json({ error: 'Password must be 6+ characters' }); run('UPDATE users SET password_hash = ? WHERE id = ?', hashPassword(password), req.user.id); }
   res.json(publicUser(get('SELECT * FROM users WHERE id = ?', req.user.id)));
 });

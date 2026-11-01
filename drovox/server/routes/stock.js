@@ -4,7 +4,8 @@ import { all, get, run, tx, round2, getSetting } from '../db.js';
 import { requireArea, audit } from '../auth.js';
 import { inventoryForecast } from '../services/engine.js';
 import { orderDetail, transition, moveStock, STATUS_LABEL } from '../services/orders.js';
-import { notify } from '../services/whatsapp.js';
+import { notify, sendWhatsApp } from '../services/whatsapp.js';
+import { addCategory, addStarterCategories, nextSku } from '../catalog.js';
 import { QuoteError } from '../pricing.js';
 
 export const stock = express.Router();
@@ -20,6 +21,9 @@ stock.get('/dashboard', (_req, res) => {
     low_stock: f.filter((x) => x.status !== 'ok').length, out_of_stock: f.filter((x) => x.status === 'out').length,
     stock_value: round2(f.reduce((s, x) => s + x.stock_value, 0)),
     incoming_batches: get(`SELECT COUNT(*) n FROM stock_batches WHERE status != 'received'`).n,
+    products: get('SELECT COUNT(*) n FROM products').n, categories: get('SELECT COUNT(*) n FROM categories').n,
+    jobs_open: get(`SELECT COUNT(*) n FROM custom_jobs WHERE status IN ('pending','in_progress')`).n,
+    jobs_ready: get(`SELECT COUNT(*) n FROM custom_jobs WHERE status = 'ready'`).n,
     latest_orders: all(`SELECT o.id, o.order_no, o.status, o.payment_method, o.payment_status, o.total, o.ship_name, o.created_at,
                           (SELECT GROUP_CONCAT(qty || '× ' || sku, ', ') FROM order_items WHERE order_id = o.id) summary
                         FROM orders o ORDER BY o.id DESC LIMIT 15`).map((o) => ({ ...o, status_label: STATUS_LABEL[o.status] })),
@@ -80,22 +84,27 @@ function productFields(b) {
     image: b.image || '📦', mrp: Number(b.mrp), price: Number(b.price), cost_price: Number(b.cost_price) || 0, hsn: String(b.hsn || '8542'),
     gst_rate: Number(b.gst_rate ?? 18), reorder_level: Number(b.reorder_level ?? 10), weight_g: Number(b.weight_g) || 50,
     tiers: JSON.stringify(tiers), supplier_id: Number(b.supplier_id) || null, active: b.active === false || b.active === 0 ? 0 : 1,
+    barcode: String(b.barcode || '').trim() || null,
   };
   if (!f.sku || !f.name) throw new QuoteError('SKU and name are required');
   if (!(f.price > 0) || !(f.mrp >= f.price)) throw new QuoteError('Price must be above 0 and MRP must be at least the price');
   if (![0, 5, 12, 18, 28].includes(f.gst_rate)) throw new QuoteError('GST rate must be 0, 5, 12, 18 or 28');
   if (tiers.some((t) => t.price >= f.price)) throw new QuoteError('Bulk tier prices must be below the unit price');
+  if (!/^[A-Z0-9][A-Z0-9-]{1,39}$/.test(f.sku)) throw new QuoteError('SKU may contain only letters, digits and dashes');
   return f;
 }
 
 stock.post('/products', (req, res, next) => {
   try {
-    const f = productFields(req.body || {});
+    const b = { ...(req.body || {}) };
+    if (!String(b.sku || '').trim() || String(b.sku).trim().toUpperCase() === 'AUTO') b.sku = nextSku(Number(b.category_id) || null);
+    const f = productFields(b);
     if (get('SELECT 1 FROM products WHERE sku = ?', f.sku)) throw new QuoteError('SKU already exists');
+    if (f.barcode && get('SELECT 1 FROM products WHERE barcode = ? OR sku = ?', f.barcode, f.barcode)) throw new QuoteError('That barcode is already used by another product');
     const slug = f.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60) + '-' + f.sku.toLowerCase().replace(/[^a-z0-9]+/g, '');
-    const r = run(`INSERT INTO products(sku, name, slug, category_id, brand, description, specs, tags, image, mrp, price, cost_price, hsn, gst_rate, stock, reorder_level, weight_g, tiers, supplier_id, active, created_by)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?)`,
-      f.sku, f.name, slug, f.category_id, f.brand, f.description, f.specs, f.tags, f.image, f.mrp, f.price, f.cost_price, f.hsn, f.gst_rate, f.reorder_level, f.weight_g, f.tiers, f.supplier_id, f.active, req.user.id);
+    const r = run(`INSERT INTO products(sku, name, slug, category_id, brand, description, specs, tags, image, mrp, price, cost_price, hsn, gst_rate, stock, reorder_level, weight_g, tiers, supplier_id, active, created_by, barcode)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?)`,
+      f.sku, f.name, slug, f.category_id, f.brand, f.description, f.specs, f.tags, f.image, f.mrp, f.price, f.cost_price, f.hsn, f.gst_rate, f.reorder_level, f.weight_g, f.tiers, f.supplier_id, f.active, req.user.id, f.barcode);
     const id = Number(r.lastInsertRowid);
     const opening = Math.floor(Number(req.body.stock) || 0);
     if (opening > 0) moveStock(id, opening, 'adjust', 'opening stock', req.user.id);
@@ -109,8 +118,10 @@ stock.put('/products/:id', (req, res, next) => {
     const old = get('SELECT * FROM products WHERE id = ?', req.params.id);
     if (!old) return res.status(404).json({ error: 'Not found' });
     const f = productFields({ ...old, specs: JSON.parse(old.specs), tiers: JSON.parse(old.tiers), ...req.body });
-    run(`UPDATE products SET sku=?, name=?, category_id=?, brand=?, description=?, specs=?, tags=?, image=?, mrp=?, price=?, cost_price=?, hsn=?, gst_rate=?, reorder_level=?, weight_g=?, tiers=?, supplier_id=?, active=?, updated_at=datetime('now') WHERE id = ?`,
-      f.sku, f.name, f.category_id, f.brand, f.description, f.specs, f.tags, f.image, f.mrp, f.price, f.cost_price, f.hsn, f.gst_rate, f.reorder_level, f.weight_g, f.tiers, f.supplier_id, f.active, old.id);
+    if (f.sku !== old.sku && get('SELECT 1 FROM products WHERE sku = ? AND id != ?', f.sku, old.id)) throw new QuoteError('SKU already exists');
+    if (f.barcode && get('SELECT 1 FROM products WHERE (barcode = ? OR sku = ?) AND id != ?', f.barcode, f.barcode, old.id)) throw new QuoteError('That barcode is already used by another product');
+    run(`UPDATE products SET sku=?, name=?, category_id=?, brand=?, description=?, specs=?, tags=?, image=?, mrp=?, price=?, cost_price=?, hsn=?, gst_rate=?, reorder_level=?, weight_g=?, tiers=?, supplier_id=?, active=?, barcode=?, updated_at=datetime('now') WHERE id = ?`,
+      f.sku, f.name, f.category_id, f.brand, f.description, f.specs, f.tags, f.image, f.mrp, f.price, f.cost_price, f.hsn, f.gst_rate, f.reorder_level, f.weight_g, f.tiers, f.supplier_id, f.active, f.barcode, old.id);
     const changed = Object.fromEntries(Object.entries(f).filter(([k, v]) => String(old[k]) !== String(v)).map(([k, v]) => [k, { from: old[k], to: v }]));
     audit(req, 'product.update', 'product', f.sku, changed);
     const now = get('SELECT * FROM products WHERE id = ?', old.id);
@@ -130,6 +141,132 @@ stock.post('/products/:id/adjust', (req, res) => {
 });
 
 stock.get('/forecast', (_req, res) => res.json(inventoryForecast()));
+
+// ---- categories & SKU codes ---------------------------------------------------------------------
+stock.get('/categories', (_req, res) => res.json(all('SELECT c.*, (SELECT COUNT(*) FROM products WHERE category_id = c.id) products FROM categories c ORDER BY sort, name')));
+stock.post('/categories', (req, res) => {
+  const b = req.body || {};
+  if (!String(b.name || '').trim()) return res.status(400).json({ error: 'Category name is required' });
+  const c = addCategory(b);
+  audit(req, 'category.create', 'category', c.id, { name: c.name, code: c.code });
+  res.json(c);
+});
+stock.post('/categories/starter', (req, res) => {
+  const added = addStarterCategories();
+  audit(req, 'category.starter', 'category', null, { added });
+  res.json({ added });
+});
+stock.put('/categories/:id', (req, res) => {
+  const c = get('SELECT * FROM categories WHERE id = ?', req.params.id);
+  if (!c) return res.status(404).json({ error: 'Not found' });
+  const b = req.body || {};
+  const code = b.code ? String(b.code).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5) : c.code;
+  run('UPDATE categories SET name = ?, icon = ?, code = ?, sort = ? WHERE id = ?', String(b.name || c.name).trim(), b.icon || c.icon, code, Number(b.sort ?? c.sort), c.id);
+  audit(req, 'category.update', 'category', c.id, b);
+  res.json(get('SELECT * FROM categories WHERE id = ?', c.id));
+});
+stock.delete('/categories/:id', (req, res) => {
+  const n = get('SELECT COUNT(*) n FROM products WHERE category_id = ?', req.params.id).n;
+  if (n) return res.status(400).json({ error: `Move or delete its ${n} product(s) first` });
+  run('DELETE FROM categories WHERE id = ?', req.params.id);
+  audit(req, 'category.delete', 'category', req.params.id);
+  res.json({ ok: true });
+});
+stock.get('/sku-next', (req, res) => res.json({ sku: nextSku(Number(req.query.category_id) || null) }));
+stock.get('/store-info', (_req, res) => {
+  const s = getSetting('store');
+  res.json({ name: s.name, legal_name: s.legal_name, address: s.address, gstin: s.gstin, support_phone: s.support_phone, public_url: s.public_url, sku_prefix: s.sku_prefix || 'DRV' });
+});
+
+// ---- barcode / QR scanning ---------------------------------------------------------------------
+/** Resolves a scanned code: product SKU or barcode, order number, or custom job number. */
+function lookupCode(raw) {
+  let code = String(raw || '').trim();
+  // QR labels encode the product URL (…/#/p/<sku-or-slug>); take the last path part.
+  const m = code.match(/#\/p\/([^/?#\s]+)/); if (m) code = decodeURIComponent(m[1]);
+  const t = code.match(/#\/track\/([^/?#\s]+)/); if (t) code = decodeURIComponent(t[1]);
+  if (!code) return null;
+  const p = get('SELECT * FROM products WHERE sku = ? COLLATE NOCASE OR barcode = ? OR slug = ?', code, code, code);
+  if (p) return { type: 'product', product: p };
+  const o = get('SELECT id, order_no, status FROM orders WHERE order_no = ? COLLATE NOCASE', code);
+  if (o) return { type: 'order', order: o };
+  const j = get('SELECT * FROM custom_jobs WHERE job_no = ? COLLATE NOCASE', code);
+  if (j) return { type: 'job', job: j };
+  return null;
+}
+stock.get('/scan/:code', (req, res) => {
+  const r = lookupCode(req.params.code);
+  r ? res.json(r) : res.status(404).json({ error: `No product, order or job matches “${req.params.code}”` });
+});
+/** Stock in / out by scan. change > 0 adds, < 0 removes. */
+stock.post('/scan-adjust', (req, res) => {
+  const r = lookupCode(req.body?.code);
+  if (!r || r.type !== 'product') return res.status(404).json({ error: `No product matches “${req.body?.code}”` });
+  const p = r.product; const change = Math.trunc(Number(req.body?.change));
+  if (!change) return res.status(400).json({ error: 'Quantity is required' });
+  if (p.stock + change < 0) return res.status(400).json({ error: `Only ${p.stock} in stock for ${p.sku}` });
+  const reason = String(req.body?.reason || (change > 0 ? 'scan in' : 'scan out')).slice(0, 120);
+  const bal = tx(() => moveStock(p.id, change, 'adjust', reason, req.user.id));
+  audit(req, change > 0 ? 'stock.scan_in' : 'stock.scan_out', 'product', p.sku, { change, reason, balance: bal });
+  if (p.stock <= 0 && bal > 0) notifyBackInStock(p.id);
+  res.json({ product: { id: p.id, sku: p.sku, name: p.name, image: p.image, category_id: p.category_id }, change, stock: bal });
+});
+
+// ---- custom / made-to-order jobs ---------------------------------------------------------------
+const JOB_STATUS = ['pending', 'in_progress', 'ready', 'delivered', 'cancelled'];
+function newJobNo() {
+  const y = String(new Date().getFullYear()).slice(2);
+  const n = get(`SELECT COUNT(*) n FROM custom_jobs WHERE job_no LIKE ?`, `CJ${y}%`).n + 1;
+  let no = `CJ${y}${String(n).padStart(4, '0')}`; let k = n;
+  while (get('SELECT 1 FROM custom_jobs WHERE job_no = ?', no)) no = `CJ${y}${String(++k).padStart(4, '0')}`;
+  return no;
+}
+stock.get('/jobs', (req, res) => {
+  const st = req.query.status;
+  const rows = all(`SELECT * FROM custom_jobs ${st ? 'WHERE status = ?' : ''} ORDER BY CASE status WHEN 'ready' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'pending' THEN 2 ELSE 3 END, COALESCE(due_date, '9999') , id DESC`, ...(st ? [st] : []));
+  const counts = Object.fromEntries(JOB_STATUS.map((s) => [s, get('SELECT COUNT(*) n FROM custom_jobs WHERE status = ?', s).n]));
+  res.json({ rows, counts });
+});
+stock.post('/jobs', (req, res) => {
+  const b = req.body || {};
+  if (!String(b.customer_name || '').trim() || !String(b.title || '').trim()) return res.status(400).json({ error: 'Customer name and what to make are required' });
+  const user = b.phone ? get(`SELECT id FROM users WHERE phone LIKE ?`, `%${String(b.phone).replace(/\D/g, '').slice(-10)}`) : null;
+  const r = run(`INSERT INTO custom_jobs(job_no, customer_name, phone, user_id, title, details, qty, price, advance, due_date, notes, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    newJobNo(), b.customer_name.trim(), b.phone || null, user?.id ?? null, b.title.trim(), b.details || null, Math.max(1, Number(b.qty) || 1),
+    Number(b.price) || 0, Number(b.advance) || 0, b.due_date || null, b.notes || null, req.user.id);
+  const job = get('SELECT * FROM custom_jobs WHERE id = ?', r.lastInsertRowid);
+  audit(req, 'job.create', 'job', job.job_no, { title: job.title, customer: job.customer_name });
+  res.json(job);
+});
+stock.put('/jobs/:id', (req, res) => {
+  const j = get('SELECT * FROM custom_jobs WHERE id = ?', req.params.id);
+  if (!j) return res.status(404).json({ error: 'Not found' });
+  const b = { ...j, ...req.body };
+  run(`UPDATE custom_jobs SET customer_name=?, phone=?, title=?, details=?, qty=?, price=?, advance=?, due_date=?, notes=?, updated_at=datetime('now') WHERE id = ?`,
+    b.customer_name, b.phone, b.title, b.details, Math.max(1, Number(b.qty) || 1), Number(b.price) || 0, Number(b.advance) || 0, b.due_date || null, b.notes, j.id);
+  audit(req, 'job.update', 'job', j.job_no);
+  res.json(get('SELECT * FROM custom_jobs WHERE id = ?', j.id));
+});
+stock.post('/jobs/:id/status', async (req, res) => {
+  const j = get('SELECT * FROM custom_jobs WHERE id = ?', req.params.id);
+  const to = req.body?.status;
+  if (!j) return res.status(404).json({ error: 'Not found' });
+  if (!JOB_STATUS.includes(to)) return res.status(400).json({ error: 'Unknown status' });
+  const stamp = to === 'ready' ? ', ready_at = datetime(\'now\')' : to === 'delivered' ? ', delivered_at = datetime(\'now\')' : '';
+  run(`UPDATE custom_jobs SET status = ?, updated_at = datetime('now')${stamp} WHERE id = ?`, to, j.id);
+  let whatsapp = null;
+  if (req.body?.notify !== false && j.phone && (to === 'ready' || to === 'delivered' || to === 'in_progress')) {
+    const store = getSetting('store'); const first = j.customer_name.split(' ')[0];
+    const due = Math.max(0, j.price - j.advance);
+    const msg = to === 'ready'
+      ? `Hi ${first}, good news! 🎉 Your custom order ${j.job_no} (${j.title}${j.qty > 1 ? ` × ${j.qty}` : ''}) is READY.${due ? ` Balance payable: ₹${due}.` : ''} Reply here to arrange pickup or delivery. — ${store.name}`
+      : to === 'in_progress' ? `Hi ${first}, work has started on your custom order ${j.job_no} (${j.title}).${j.due_date ? ` Expected ready by ${j.due_date}.` : ''} — ${store.name}`
+        : `Hi ${first}, your custom order ${j.job_no} (${j.title}) has been delivered. Thank you for choosing ${store.name}! 🙏`;
+    whatsapp = await sendWhatsApp(j.phone, msg);
+  }
+  audit(req, `job.${to}`, 'job', j.job_no, { notified: !!whatsapp?.ok });
+  res.json({ job: get('SELECT * FROM custom_jobs WHERE id = ?', j.id), whatsapp });
+});
 
 // ---- suppliers & China import batches ---------------------------------------------------------
 stock.get('/suppliers', (_req, res) => res.json(all('SELECT s.*, (SELECT COUNT(*) FROM products WHERE supplier_id = s.id) products FROM suppliers s ORDER BY name')));

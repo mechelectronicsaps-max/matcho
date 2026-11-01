@@ -148,7 +148,7 @@ export function inventoryForecast() {
 /** RFM segmentation of customers for CRM and campaign targeting. */
 export function customerSegments() {
   const rows = all(`
-    SELECT u.id, u.name, u.email, u.phone, u.points, u.created_at, u.last_seen,
+    SELECT u.id, u.name, u.email, u.phone, u.points, u.created_at, u.last_seen, u.dob, u.anniversary, u.city, u.source, u.company,
       COUNT(o.id) orders, COALESCE(SUM(o.total),0) spend, MAX(o.created_at) last_order
     FROM users u LEFT JOIN orders o ON o.user_id = u.id AND o.status NOT IN ('cancelled','pending_payment')
     WHERE u.role = 'customer' GROUP BY u.id`);

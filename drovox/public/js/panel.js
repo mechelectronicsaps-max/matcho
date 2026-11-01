@@ -10,7 +10,11 @@ export async function startPanel(o) {
   let me = null;
   if (getToken()) { try { me = await api('/me'); } catch { me = null; } }
   const allowed = (u) => u && (o.roles.includes(u.role) || u.role === 'admin');
-  if (!allowed(me)) return loginScreen();
+  if (!allowed(me)) {
+    let needsSetup = false;
+    try { needsSetup = (await api('/setup')).needs_setup; } catch { /* offline */ }
+    return needsSetup ? setupScreen() : loginScreen();
+  }
 
   let areas = ['*'];
   if (o.permissions) { try { areas = (await api(o.permissions)).areas; } catch { /* default */ } }
@@ -38,11 +42,31 @@ export async function startPanel(o) {
   };
   window.addEventListener('hashchange', route); route();
 
+  function setupScreen() {
+    if (!o.setup) {
+      root.innerHTML = `<div class="login-screen"><div class="card"><h2>Setup needed</h2><p>No owner account exists yet. Open the <a class="link" href="/master">Master panel</a> to set up your shop first.</p></div></div>`;
+      return;
+    }
+    root.innerHTML = `<div class="login-screen"><div class="card" style="width:min(560px,100%)"><a href="/" class="logo" style="margin-bottom:12px"><span class="mark">D</span><span>Dro<b>vox</b></span></a>
+      <h2>Welcome! Set up your shop</h2><p class="small muted">This creates the owner (admin) account. You can change every detail later in Settings.</p>
+      <form class="form two" id="sf">
+        <label class="f">Shop / brand name<input name="store_name" value="Drovox" required></label><label class="f">Legal business name (on invoices)<input name="legal_name" placeholder="e.g. Drovox Technologies"></label>
+        <label class="f">GSTIN (optional)<input name="gstin" maxlength="15" placeholder="27ABCDE1234F1Z5" style="text-transform:uppercase"></label><label class="f">Shop WhatsApp / phone<input name="support_phone" inputmode="tel"></label>
+        <label class="f full">Business address (printed on invoices and box labels)<input name="address"></label>
+        <hr class="sep full"><label class="f">Your name<input name="name" required autocomplete="name"></label><label class="f">Your mobile<input name="phone" inputmode="tel"></label>
+        <label class="f">Login email<input name="email" type="email" required autocomplete="username"></label><label class="f">Password (8+ characters)<input name="password" type="password" minlength="8" required autocomplete="new-password"></label>
+        <button class="btn primary lg full">Create owner account</button></form></div></div>`;
+    $('#sf').onsubmit = async (e) => {
+      e.preventDefault();
+      try { const r = await api('/setup', { method: 'POST', body: formData(e.target) }); setToken(r.token); toast('Shop created — welcome!'); setTimeout(() => location.reload(), 400); } catch (err) { toast(err.message, 'err'); }
+    };
+  }
+
   function loginScreen() {
     root.innerHTML = `<div class="login-screen"><div class="card"><a href="/" class="logo" style="margin-bottom:12px"><span class="mark">D</span><span>Dro<b>vox</b></span></a>
       <h2>${esc(o.title)}</h2>${me ? `<p class="small" style="color:var(--red)">Signed in as ${esc(me.email)}, which does not have access here.</p>` : ''}
       <form class="form" id="lf"><label class="f">Email<input name="email" type="email" required autocomplete="username"></label><label class="f">Password<input name="password" type="password" required autocomplete="current-password"></label><button class="btn primary lg">Sign in</button></form>
-      <p class="tiny muted" style="margin-top:12px">${o.demo}</p></div></div>`;
+      ${o.demo ? `<p class="tiny muted" style="margin-top:12px">${o.demo}</p>` : ''}</div></div>`;
     $('#lf').onsubmit = async (e) => {
       e.preventDefault();
       try {

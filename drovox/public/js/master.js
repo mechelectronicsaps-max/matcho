@@ -61,14 +61,30 @@ async function orders(el, params) {
 async function customers(el, params) {
   const seg = params.get('segment') || '';
   const d = await api(`${A}/customers${seg ? `?segment=${seg}` : ''}`);
-  el.innerHTML = `${head('Customers', '<button class="btn" id="csv">⬇ CSV</button>')}
+  el.innerHTML = `${head('Customers', '<button class="btn" id="csv">⬇ CSV</button><a class="btn" href="#/greetings">🎂 Greetings</a><button class="btn primary" id="add">+ Add customer</button>')}
     <p class="small muted">RFM segments: <b>Champions</b> 3+ orders & bought in 45 days · <b>Loyal</b> 2+ orders in 90 days · <b>Recent</b> bought in 30 days · <b>At risk</b> 30–120 days quiet · <b>Lost</b> 120+ days · <b>Browsers</b> visited, never bought. Use them as campaign audiences.</p>
     <div class="row" style="margin-bottom:12px"><a class="chip ${!seg ? 'on' : ''}" href="#/customers">All</a>${Object.entries(SEG).map(([k, [, l]]) => `<a class="chip ${seg === k ? 'on' : ''}" href="#/customers?segment=${k}">${l} <b>${d.counts[k] || 0}</b></a>`).join('')}</div>
-    <div class="card table-wrap"><table class="t"><thead><tr><th>Customer</th><th>Segment</th><th class="r">Orders</th><th class="r">Lifetime spend</th><th class="r">AOV</th><th class="r">Last order</th><th class="r">Points</th></tr></thead><tbody>
-    ${d.rows.map((c) => `<tr class="click" data-c="${c.id}"><td><b>${esc(c.name)}</b><div class="tiny muted">${esc(c.email)} · ${esc(c.phone || '')}</div></td><td><span class="badge ${SEG[c.segment][0]}">${SEG[c.segment][1]}</span></td><td class="r">${c.orders}</td><td class="r">${money(c.spend)}</td><td class="r">${money(c.aov)}</td><td class="r small">${c.days_since_order == null ? '—' : `${c.days_since_order}d ago`}</td><td class="r">${num(c.points)}</td></tr>`).join('')}</tbody></table></div>`;
+    <div class="card table-wrap"><table class="t"><thead><tr><th>Customer</th><th>Segment</th><th class="r">Orders</th><th class="r">Lifetime spend</th><th class="r">AOV</th><th class="r">Last order</th><th class="r">Points</th><th>Birthday / anniv.</th></tr></thead><tbody>
+    ${d.rows.length ? '' : '<tr><td colspan="8" class="muted">No customers yet — they appear when people sign up on the store, or add walk-in / phone customers with “+ Add customer”.</td></tr>'}
+    ${d.rows.map((c) => `<tr class="click" data-c="${c.id}"><td><b>${esc(c.name)}</b><div class="tiny muted">${c.email.endsWith('.drovox.local') ? '' : `${esc(c.email)} · `}${esc(c.phone || '')}${c.city ? ` · ${esc(c.city)}` : ''}</div></td><td><span class="badge ${SEG[c.segment][0]}">${SEG[c.segment][1]}</span></td><td class="r">${c.orders}</td><td class="r">${money(c.spend)}</td><td class="r">${money(c.aov)}</td><td class="r small">${c.days_since_order == null ? '—' : `${c.days_since_order}d ago`}</td><td class="r">${num(c.points)}</td><td class="small">${c.dob ? `🎂 ${esc(c.dob.slice(5))}` : ''} ${c.anniversary ? `💐 ${esc(c.anniversary.slice(5))}` : ''}</td></tr>`).join('')}</tbody></table></div>`;
   $('#csv').onclick = () => downloadCsv('drovox-customers.csv', d.rows.map(({ id, ...r }) => r));
+  $('#add').onclick = () => {
+    const m = modal(`<h2>Add customer</h2><p class="small muted">For walk-in, phone or WhatsApp customers. Email is optional. Birthday and anniversary are used for automatic WhatsApp greetings.</p>${personalForm({ source: 'walk_in', whatsapp_opt_in: 1 }, true)}`, { wide: true });
+    $('form', m.el).onsubmit = async (e) => { e.preventDefault(); try { await api(`${A}/customers`, { method: 'POST', body: formData(e.target) }); toast('Customer added'); m.close(); customers(el, params); } catch (err) { toast(err.message, 'err'); } };
+  };
   $$('[data-c]', el).forEach((r) => { r.onclick = () => customer360(r.dataset.c, () => customers(el, params)); });
 }
+function personalForm(u, isNew) {
+  return `<form class="form two"><label class="f">Full name<input name="name" required value="${esc(u.name || '')}"></label><label class="f">WhatsApp mobile<input name="phone" ${isNew ? 'required' : ''} value="${esc(u.phone || '')}" inputmode="tel"></label>
+    ${isNew ? '<label class="f">Email (optional)<input name="email" type="email"></label>' : ''}<label class="f">City<input name="city" value="${esc(u.city || '')}"></label>
+    <label class="f">Company / college<input name="company" value="${esc(u.company || '')}"></label>
+    <label class="f">Date of birth<input name="dob" type="date" value="${esc(u.dob || '')}"></label><label class="f">Anniversary<input name="anniversary" type="date" value="${esc(u.anniversary || '')}"></label>
+    ${isNew ? `<label class="f">Source<select name="source">${[['walk_in', 'Walk-in / counter'], ['phone', 'Phone call'], ['whatsapp', 'WhatsApp'], ['import', 'Imported list']].map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select></label>` : ''}
+    <label class="f full">Notes (interests, projects, preferences)<textarea name="notes" rows="2">${esc(u.notes || '')}</textarea></label>
+    <label class="check full"><input type="checkbox" name="whatsapp_opt_in" ${u.whatsapp_opt_in ? 'checked' : ''}> Customer agrees to receive WhatsApp updates and greetings</label>
+    <button class="btn primary full">Save</button></form>`;
+}
+
 async function customer360(id, reload) {
   const c = await api(`${A}/customers/${id}`);
   const s = c.segment || {};
@@ -81,9 +97,13 @@ async function customer360(id, reload) {
     <div class="grid g2" style="margin-top:12px">
       <form class="card flat form" id="wa"><h3>💬 WhatsApp</h3><textarea name="message" rows="3" placeholder="Hi ${esc(c.user.name.split(' ')[0])}, …"></textarea><button class="btn primary" ${c.user.phone ? '' : 'disabled'}>Send WhatsApp</button>
         <div class="tiny muted">${c.messages.slice(0, 4).map((x) => `${ago(x.created_at)} · ${esc(x.status)} · ${esc(x.body.slice(0, 60))}`).join('<br>')}</div></form>
+      <div class="card flat full" style="grid-column:1/-1"><h3>👤 Personal details</h3><div id="pd"></div></div>
       <form class="card flat form" id="pts"><h3>⭐ Adjust points</h3><input name="change" type="number" placeholder="+100 or -50" required><input name="reason" placeholder="Reason (goodwill, correction…)"><button class="btn">Apply</button></form>
     </div>`, { wide: true });
   $('#wa', m.el).onsubmit = async (e) => { e.preventDefault(); const r = await api(`${A}/whatsapp/test`, { method: 'POST', body: { to: c.user.phone, message: formData(e.target).message } }); toast(r.ok ? (r.simulated ? 'Logged in outbox (WhatsApp not configured — simulated)' : 'WhatsApp sent') : r.error, r.ok ? 'ok' : 'err'); };
+  const raw = (await api(`${A}/customers`)).rows.find((r) => r.id === Number(id)) || {};
+  $('#pd', m.el).innerHTML = personalForm({ ...c.user, notes: raw.notes, whatsapp_opt_in: c.user.whatsapp_opt_in }, false);
+  $('#pd form', m.el).onsubmit = async (e) => { e.preventDefault(); try { await api(`${A}/customers/${id}`, { method: 'PUT', body: formData(e.target) }); toast('Details saved'); m.close(); reload(); } catch (err) { toast(err.message, 'err'); } };
   $('#pts', m.el).onsubmit = async (e) => { e.preventDefault(); try { const r = await api(`${A}/users/${id}/points`, { method: 'POST', body: formData(e.target) }); toast(`Balance now ${r.points}`); m.close(); reload(); } catch (err) { toast(err.message, 'err'); } };
 }
 
@@ -123,6 +143,18 @@ async function crm(el) {
   $$('[data-l]', el).forEach((c) => { c.onclick = () => open(d.rows.find((r) => r.id === Number(c.dataset.l))); });
 }
 
+const FESTIVALS = {
+  'Diwali': 'Hi {name}! 🪔 Wishing you and your family a very Happy Diwali — may your year be bright with new ideas and successful builds. Warm wishes from Team Drovox ✨',
+  'Holi': 'Hi {name}! 🌈 Happy Holi from Team Drovox — have a colourful and safe celebration!',
+  'New Year': 'Hi {name}! 🎉 Happy New Year from Team Drovox. Here’s to a year of great projects — thank you for building with us!',
+  'Ganesh Chaturthi': 'Hi {name}! 🙏 Ganpati Bappa Morya! Wishing you a blessed Ganesh Chaturthi from Team Drovox.',
+  'Eid': 'Hi {name}! 🌙 Eid Mubarak from Team Drovox — wishing you peace, happiness and prosperity.',
+  'Christmas': 'Hi {name}! 🎄 Merry Christmas from Team Drovox — wishing you joy and a great holiday season.',
+  'Independence Day': 'Hi {name}! 🇮🇳 Happy Independence Day from Team Drovox — proud to support India’s makers and engineers.',
+  'Engineers Day': 'Hi {name}! 🔧 Happy Engineers’ Day from Team Drovox — celebrating everyone who builds the future.',
+  'Weekend offer': 'Hi {name}! 🛒 This weekend only: special prices on popular parts at Drovox. You have {points} points to use too. Shop now: ',
+};
+
 // ------------------------------------------------------------------ marketing
 async function marketing(el, params) {
   const tab = params.get('tab') || 'coupons';
@@ -147,9 +179,11 @@ async function marketing(el, params) {
       ${d.rows.map((c) => `<tr><td><b>${esc(c.name)}</b><div class="tiny muted">${esc(c.message.slice(0, 80))}</div></td><td>${esc(SEG[c.segment]?.[1] || 'Everyone')}</td><td class="r">${c.sent_count}</td><td><span class="badge ${c.status === 'sent' ? 'green' : ''}">${esc(c.status)}</span>${c.sent_at ? `<div class="tiny muted">${ago(c.sent_at)}</div>` : ''}</td><td>${c.status !== 'sent' ? `<button class="btn sm primary" data-send="${c.id}">Send now</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No campaigns yet</td></tr>'}</tbody></table></div>
       <form class="card form" id="cf"><h3>New WhatsApp campaign</h3><label class="f">Name<input name="name" required placeholder="Weekend drone sale"></label>
         <label class="f">Audience<select name="segment">${d.segments.map((s) => `<option value="${s.segment}">${s.segment === 'all' ? 'All opted-in customers' : SEG[s.segment][1]} (${s.recipients})</option>`).join('')}</select></label>
-        <label class="f">Message<textarea name="message" rows="5" required>Hi {name}! 🚁 This weekend only: 15% off drone parts with code DRONE15. You also have {points} Drovox points to use. Shop now: </textarea></label>
+        <label class="f">Quick template<select id="tpl"><option value="">— choose a festival or offer —</option>${Object.keys(FESTIVALS).map((k) => `<option>${k}</option>`).join('')}</select></label>
+        <label class="f">Message<textarea name="message" rows="5" required>Hi {name}! </textarea></label>
         <div class="tiny muted">Placeholders: {name}, {points}. Marketing messages outside a 24-hour customer window need an approved WhatsApp template.</div>
         <label class="f">Coupon to promote (optional)<input name="coupon_code"></label><button class="btn primary">Save campaign</button></form></div>`;
+    $('#tpl').onchange = (e) => { if (!e.target.value) return; const f = $('#cf'); f.elements.message.value = FESTIVALS[e.target.value]; if (!f.elements.name.value) f.elements.name.value = `${e.target.value} ${new Date().getFullYear()}`; };
     $('#cf').onsubmit = async (e) => { e.preventDefault(); try { await api(`${A}/campaigns`, { method: 'POST', body: formData(e.target) }); toast('Campaign saved — press Send when ready'); marketing(el, params); } catch (err) { toast(err.message, 'err'); } };
     $$('[data-send]', mt).forEach((b) => { b.onclick = async () => { if (!confirm('Send this campaign now?')) return; b.disabled = true; const r = await api(`${A}/campaigns/${b.dataset.send}/send`, { method: 'POST' }); toast(`Sent to ${r.sent} of ${r.recipients} customers`); marketing(el, params); }; });
   } else if (tab === 'carts') {
@@ -196,15 +230,68 @@ async function gst(el, params) {
 }
 
 // ------------------------------------------------------------------ WhatsApp
+/** Renders a gateway response: finds a QR image, a list of messages, or shows the raw JSON. */
+function gatewayView(action, r) {
+  const head = `<div class="row" style="margin-bottom:8px"><span class="badge ${r.ok ? 'green' : 'red'}">${r.ok ? 'OK' : 'Error'}</span><span class="small muted">HTTP ${r.status || '—'}${r.error ? ` · ${esc(r.error)}` : ''}</span></div>`;
+  const j = r.json;
+  const find = (o, test, depth = 0) => {
+    if (!o || depth > 4) return null;
+    if (typeof o === 'string') return test(o) ? o : null;
+    if (typeof o === 'object') for (const v of Object.values(o)) { const f = find(v, test, depth + 1); if (f) return f; }
+    return null;
+  };
+  let body = '';
+  if (action === 'connect' && j) {
+    const qr = find(j, (s) => s.startsWith('data:image') || /\.(png|jpg|jpeg|svg)(\?|$)/i.test(s) || (s.length > 200 && /^[A-Za-z0-9+/=]+$/.test(s)));
+    if (qr) body = `<div style="text-align:center"><img alt="WhatsApp link QR" style="width:260px;max-width:100%;background:#fff;padding:8px;border-radius:12px" src="${esc(qr.startsWith('data:') || qr.startsWith('http') ? qr : `data:image/png;base64,${qr}`)}"><p class="small">Open WhatsApp on the shop phone → Settings → Linked devices → Link a device, and scan this code.</p></div>`;
+  }
+  if (!body && j) {
+    const list = Array.isArray(j) ? j : Array.isArray(j.data) ? j.data : Array.isArray(j.messages) ? j.messages : Array.isArray(j.data?.data) ? j.data.data : null;
+    if (list) {
+      const cols = [...new Set(list.slice(0, 20).flatMap((x) => (x && typeof x === 'object' ? Object.keys(x) : [])))].slice(0, 6);
+      body = list.length ? `<div class="table-wrap"><table class="t"><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${list.slice(0, 100).map((x) => `<tr>${cols.map((c) => `<td class="small">${esc(typeof x[c] === 'object' ? JSON.stringify(x[c]) : x[c] ?? '').slice(0, 120)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : '<p class="muted">Nothing here.</p>';
+    }
+  }
+  if (!body) body = `<pre class="code">${esc(j ? JSON.stringify(j, null, 2) : r.text || '')}</pre>`;
+  return head + body;
+}
+
 async function whatsapp(el) {
   const d = await api(`${A}/notifications`);
-  el.innerHTML = `${head('WhatsApp messages', '<a class="btn" href="#/settings?tab=whatsapp">⚙️ Configure API</a>')}
-    ${d.configured ? '<div class="banner teal" style="margin-bottom:14px"><div>✅ Connected to WhatsApp Business Cloud API</div></div>' : '<div class="banner brand" style="margin-bottom:14px"><div>⚠️ WhatsApp API not configured — messages are <b>simulated</b> and logged here. Add your Meta phone number ID and access token in Settings → WhatsApp.</div></div>'}
+  const myrc = d.provider !== 'meta';
+  el.innerHTML = `${head('WhatsApp messages', '<a class="btn" href="#/settings?tab=whatsapp">⚙️ Configure</a>')}
+    ${d.configured ? `<div class="banner teal" style="margin-bottom:14px"><div>✅ WhatsApp is on — sending through ${myrc ? 'the msg.myrc.in gateway' : 'the Meta WhatsApp Cloud API'}.</div></div>` : '<div class="banner brand" style="margin-bottom:14px"><div>⚠️ WhatsApp is not switched on yet — messages are <b>simulated</b> and only logged here. Enter your gateway API key and tick “Enable WhatsApp” in Settings → WhatsApp.</div></div>'}
+    ${myrc ? `<div class="card" style="margin-bottom:16px"><div class="row between"><h3 style="margin:0">📱 Gateway device (msg.myrc.in)</h3><div class="row"><button class="btn sm" data-gw="status">Device status</button><button class="btn sm primary" data-gw="connect">Connect / show QR</button><button class="btn sm" data-gw="pending">Pending messages</button><button class="btn sm" data-gw="logs">Gateway logs</button></div></div>
+      <div id="gw" class="small muted" style="margin-top:10px">Check that your WhatsApp phone is linked. If it is disconnected, press “Connect / show QR” and scan the code from WhatsApp → Linked devices.</div></div>` : ''}
     <div class="grid g2" style="grid-template-columns:minmax(0,1.8fr) minmax(0,1fr)"><div class="card table-wrap"><div class="row" style="margin-bottom:8px">${d.counts.map((c) => `<span class="badge ${c.status === 'sent' ? 'green' : c.status === 'failed' ? 'red' : ''}">${esc(c.status)} ${c.n}</span>`).join('')}</div>
       <table class="t"><thead><tr><th>When</th><th>To</th><th>Message</th><th>Status</th></tr></thead><tbody>${d.rows.map((n) => `<tr><td class="small nowrap">${ago(n.created_at)}</td><td class="small">${esc(n.to_phone)}</td><td class="small">${esc(n.body.slice(0, 140))}${n.error ? `<div style="color:var(--red)" class="tiny">${esc(n.error)}</div>` : ''}</td><td><span class="badge ${n.status === 'sent' ? 'green' : n.status === 'failed' ? 'red' : ''}">${esc(n.status)}</span></td></tr>`).join('')}</tbody></table></div>
       <form class="card form" id="tf"><h3>Send a test</h3><label class="f">To (mobile)<input name="to" required></label><label class="f">Message<textarea name="message" rows="3">Test message from Drovox ✅</textarea></label><button class="btn primary">Send</button>
       <div class="small muted">Automatic messages: order confirmed, packed, shipped (with AWB), out for delivery, delivered (+points), cancelled, back-in-stock, abandoned cart, campaigns, CRM follow-ups, daily low-stock digest to the store number.</div></form></div>`;
+  $$('[data-gw]', el).forEach((b) => { b.onclick = async () => {
+    const box = $('#gw'); box.innerHTML = '<span class="spinner"></span> Contacting gateway…';
+    try { box.innerHTML = gatewayView(b.dataset.gw, await api(`${A}/whatsapp/gateway/${b.dataset.gw}`)); } catch (e) { box.innerHTML = `<span style="color:var(--red)">${esc(e.message)}</span>`; }
+  }; });
   $('#tf').onsubmit = async (e) => { e.preventDefault(); const r = await api(`${A}/whatsapp/test`, { method: 'POST', body: formData(e.target) }); toast(r.ok ? (r.simulated ? 'Simulated (API not configured)' : 'Sent') : r.error, r.ok ? 'ok' : 'err'); whatsapp(el); };
+}
+
+// ------------------------------------------------------------------ greetings
+async function greetings(el, params) {
+  const days = Number(params.get('days') || 30);
+  const d = await api(`${A}/greetings?days=${days}`);
+  const when = (n) => (n === 0 ? '<b style="color:var(--brand)">Today</b>' : n === 1 ? 'Tomorrow' : `in ${n} days`);
+  el.innerHTML = `${head('🎂 Birthday & anniversary greetings', `<div class="row">${[7, 30, 90].map((n) => `<a class="chip ${n === days ? 'on' : ''}" href="#/greetings?days=${n}">${n} days</a>`).join('')}</div><a class="btn" href="#/settings?tab=greetings">⚙️ Messages</a>`)}
+    <div class="banner ${d.settings.enabled ? 'teal' : 'brand'}" style="margin-bottom:14px"><div>${d.settings.enabled ? `✅ Automatic greetings are on — sent on WhatsApp each day after ${d.settings.send_hour}:00 IST.` : '⏸️ Automatic greetings are off — turn them on in Settings → Greetings.'} ${d.missing ? `<b>${d.missing}</b> customers have no birthday or anniversary saved — add them from the customer’s page.` : ''}</div></div>
+    <div class="grid g2" style="grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)"><div class="card table-wrap"><table class="t"><thead><tr><th>When</th><th>Customer</th><th>Occasion</th><th>Status</th><th></th></tr></thead><tbody>
+      ${d.rows.map((r) => `<tr><td class="small">${when(r.in_days)}<div class="tiny muted">${esc(r.date.slice(5))}</div></td><td>${esc(r.name)}<div class="tiny muted">${esc(r.phone || 'no phone')}</div></td>
+        <td>${r.kind === 'birthday' ? `🎂 Birthday${r.turning ? ` (${r.turning})` : ''}` : '💐 Anniversary'}</td>
+        <td>${r.sent ? '<span class="badge green">sent</span>' : !r.opted_in ? '<span class="badge">opted out</span>' : !r.phone ? '<span class="badge red">no phone</span>' : '<span class="badge">scheduled</span>'}</td>
+        <td>${!r.sent && r.phone && r.opted_in ? `<button class="btn sm" data-send="${r.user_id}" data-kind="${r.kind}" data-year="${r.year}">Send now</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No birthdays or anniversaries in this period.</td></tr>'}</tbody></table></div>
+      <div class="card stack"><h3>Message preview</h3><div class="small"><b>Birthday</b><div class="card flat" style="margin-top:4px">${esc(d.preview.birthday)}</div></div><div class="small"><b>Anniversary</b><div class="card flat" style="margin-top:4px">${esc(d.preview.anniversary)}</div></div>
+        <hr class="sep"><h3>Festival greetings</h3><p class="small muted">Send Diwali, Holi, New Year and other wishes to all customers (or a segment) as a WhatsApp campaign.</p><a class="btn" href="#/marketing?tab=campaigns">Create festival campaign →</a></div></div>`;
+  $$('[data-send]', el).forEach((b) => { b.onclick = async () => {
+    b.disabled = true; const r = await api(`${A}/greetings/send`, { method: 'POST', body: { user_id: b.dataset.send, kind: b.dataset.kind, year: b.dataset.year } });
+    toast(r.ok ? (r.simulated ? 'Greeting logged (WhatsApp not enabled — simulated)' : 'Greeting sent 🎉') : r.error, r.ok ? 'ok' : 'err'); greetings(el, params);
+  }; });
 }
 
 // ------------------------------------------------------------------ users & roles
@@ -257,9 +344,11 @@ async function automation(el) {
 
 // ------------------------------------------------------------------ settings
 const SETTINGS_UI = {
-  store: ['Store & GST', { name: 'Store name', tagline: 'Tagline', legal_name: 'Legal name (on invoices)', gstin: 'GSTIN', state_code: 'State code (e.g. 27 = Maharashtra)', address: 'Address', support_phone: 'Support WhatsApp number', support_email: 'Support email', public_url: 'Public website URL' }],
+  store: ['Store & GST', { name: 'Store name', tagline: 'Tagline', legal_name: 'Legal name (on invoices)', gstin: 'GSTIN', state_code: 'State code (e.g. 27 = Maharashtra)', address: 'Address', support_phone: 'Support WhatsApp number', support_email: 'Support email', public_url: 'Public website URL', sku_prefix: 'SKU prefix (DRV → DRV-SEN-0001)' }],
   payments: ['Payments', { razorpay_key_id: 'Razorpay key ID', razorpay_key_secret: 'Razorpay key secret', razorpay_webhook_secret: 'Razorpay webhook secret (webhook URL: /api/webhooks/razorpay)', cod_enabled: 'Enable cash on delivery', test_mode: 'Allow test-mode payments while Razorpay is not configured' }],
-  whatsapp: ['WhatsApp', { enabled: 'Enable WhatsApp Cloud API', phone_number_id: 'Phone number ID (Meta)', access_token: 'Permanent access token', api_version: 'Graph API version', use_templates: 'Use approved templates for order updates' }],
+  whatsapp: ['WhatsApp', { enabled: 'Enable WhatsApp messages (otherwise they are only simulated and logged)', provider: 'Provider', myrc_base_url: 'Gateway API URL (msg.myrc.in)', myrc_api_key: 'Gateway API key (Bearer token)',
+    phone_number_id: 'Meta: phone number ID', access_token: 'Meta: permanent access token', api_version: 'Meta: Graph API version', use_templates: 'Meta: use approved templates for order updates' }],
+  greetings: ['Greetings', { enabled: 'Send birthday & anniversary greetings automatically on WhatsApp', send_hour: 'Send after (hour, IST, 0–23)', birthday: 'Birthday message', anniversary: 'Anniversary message', coupon: 'Gift coupon code (optional — create it in Marketing first)', coupon_line: 'Coupon sentence added to the message' }],
   ai: ['AI (Claude)', { enabled: 'Enable AI Project Builder', anthropic_api_key: 'Anthropic API key (or set ANTHROPIC_API_KEY on the server)', model: 'Model' }],
   shipping: ['Shipping', { flat_fee: 'Flat shipping fee ₹', free_above: 'Free shipping above ₹', cod_fee: 'COD handling fee ₹', cod_max_order: 'Max COD order ₹' }],
   courier: ['Courier', { provider: 'Provider (manual / shiprocket)', shiprocket_email: 'Shiprocket email', shiprocket_password: 'Shiprocket password', tracking_url: 'Tracking URL template ({awb})' }],
@@ -267,17 +356,23 @@ const SETTINGS_UI = {
   engagement: ['Engagement', { welcome_coupon: 'Welcome coupon code', exit_intent: 'Show exit-intent offer to new visitors', social_proof: 'Show real-time social proof on product pages', abandoned_cart_hours: 'Abandoned cart reminder after (hours)', abandoned_cart_coupon: 'Abandoned cart coupon', unpaid_cancel_minutes: 'Cancel unpaid online orders after (minutes)' }],
   inventory: ['Inventory', { safety_days: 'Safety stock (days)', target_cover_days: 'Reorder to cover (days)', low_stock_default: 'Default reorder level' }],
 };
+const SELECTS = { provider: [['myrc', 'msg.myrc.in gateway'], ['meta', 'Meta WhatsApp Cloud API']] };
+const TEXTAREAS = ['birthday', 'anniversary', 'coupon_line'];
 async function settings(el, params) {
   const all = await api(`${A}/settings`);
   const tab = params.get('tab') || 'store';
   const [title, fields] = SETTINGS_UI[tab];
   const cur = all[tab];
   el.innerHTML = `${head('Settings')}<div class="tabs">${Object.entries(SETTINGS_UI).map(([k, [t]]) => `<a href="#/settings?tab=${k}" class="${k === tab ? 'on' : ''}">${t}</a>`).join('')}</div>
-    <form class="card form two" id="sf" style="max-width:900px">${Object.entries(fields).map(([k, label]) => typeof cur[k] === 'boolean'
+    <form class="card form two" id="sf" style="max-width:900px">${Object.entries(fields).map(([k, label]) => SELECTS[k]
+      ? `<label class="f">${esc(label)}<select name="${k}">${SELECTS[k].map(([v, l]) => `<option value="${v}" ${cur[k] === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`
+      : TEXTAREAS.includes(k) ? `<label class="f full">${esc(label)}<textarea name="${k}" rows="3">${esc(cur[k] ?? '')}</textarea></label>`
+      : typeof cur[k] === 'boolean'
       ? `<label class="check full"><input type="checkbox" name="${k}" ${cur[k] ? 'checked' : ''}> ${esc(label)}</label>`
       : `<label class="f ${String(cur[k]).length > 40 || k.includes('url') ? 'full' : ''}">${esc(label)}<input name="${k}" ${typeof cur[k] === 'number' ? 'type="number" step="any"' : ''} value="${esc(cur[k] ?? '')}" ${/secret|token|password|api_key/.test(k) ? 'autocomplete="off"' : ''}></label>`).join('')}
       ${tab === 'loyalty' ? `<div class="full small muted">Tiers: ${cur.tiers.map((t) => `${esc(t.name)} from ${money(t.min_spend)} (${t.multiplier}×)`).join(' · ')}</div>` : ''}
-      ${tab === 'whatsapp' ? '<div class="full small muted">Create an app at developers.facebook.com → WhatsApp → API setup to get the phone number ID and a permanent system-user token. For order updates outside the 24-hour window, approve templates named order_confirmed / order_shipped / order_delivered and enable “Use approved templates”.</div>' : ''}
+      ${tab === 'whatsapp' ? '<div class="full small muted"><b>msg.myrc.in:</b> paste the API key from your gateway account (the same key your PHP backend used), tick “Enable”, save, then open the WhatsApp page and press “Device status” to check the phone is linked. <b>Meta Cloud API</b> (alternative): create an app at developers.facebook.com → WhatsApp → API setup.</div>' : ''}
+      ${tab === 'greetings' ? '<div class="full small muted">Placeholders: {name} = first name, {store} = shop name, {coupon} = gift coupon. Greetings go to customers with a birthday/anniversary saved and WhatsApp updates allowed — once per year per occasion.</div>' : ''}
       ${tab === 'payments' ? '<div class="full small muted">Get keys from dashboard.razorpay.com → Settings → API Keys. Add a webhook for payment.captured pointing to https://YOUR-DOMAIN/api/webhooks/razorpay with the same webhook secret.</div>' : ''}
       <div class="full"><button class="btn primary">Save ${esc(title)}</button></div></form>`;
   $('#sf').onsubmit = async (e) => { e.preventDefault(); try { await api(`${A}/settings/${tab}`, { method: 'PUT', body: formData(e.target) }); toast('Settings saved'); settings(el, params); } catch (err) { toast(err.message, 'err'); } };
@@ -293,7 +388,7 @@ async function inventory(el) {
 
 startPanel({
   scope: 'master', title: 'Master Panel', roles: ['admin', 'marketing', 'support'], permissions: `${A}/permissions`,
-  demo: 'Admin: admin@drovox.in / admin123 · Marketing: marketing@drovox.in / market123 · Support: support@drovox.in / support123',
+  demo: '', setup: true,
   switchLink: { href: '/stockist', label: '📦 Stockist panel' },
   nav: [
     { id: 'dashboard', label: 'Dashboard', icon: '📊', group: 'Overview', area: 'dashboard' },
@@ -302,6 +397,7 @@ startPanel({
     { id: 'customers', label: 'Customers', icon: '👥', group: 'Sales', area: 'customers' },
     { id: 'crm', label: 'CRM pipeline', icon: '🎯', group: 'Sales', area: 'crm' },
     { id: 'marketing', label: 'Marketing', icon: '📣', group: 'Growth', area: 'marketing' },
+    { id: 'greetings', label: 'Greetings', icon: '🎂', group: 'Growth', area: 'customers' },
     { id: 'whatsapp', label: 'WhatsApp', icon: '💬', group: 'Growth', area: 'whatsapp' },
     { id: 'gst', label: 'GST reports', icon: '🏛️', group: 'Admin', area: 'admin' },
     { id: 'users', label: 'Users & roles', icon: '🔐', group: 'Admin', area: 'admin' },
@@ -309,5 +405,5 @@ startPanel({
     { id: 'automation', label: 'Automation', icon: '⚙️', group: 'Admin', area: 'admin' },
     { id: 'settings', label: 'Settings', icon: '🛠️', group: 'Admin', area: 'admin' },
   ],
-  pages: { dashboard, inventory, orders, customers, crm, marketing, gst, whatsapp, users, audit, automation, settings },
+  pages: { dashboard, inventory, orders, customers, crm, marketing, gst, greetings, whatsapp, users, audit, automation, settings },
 });

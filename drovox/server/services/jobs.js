@@ -5,6 +5,7 @@ import { transition } from './orders.js';
 import { notify } from './whatsapp.js';
 import { inventoryForecast } from './engine.js';
 import { audit } from '../auth.js';
+import { runGreetings } from './greetings.js';
 
 const SYSTEM = { id: null, name: 'automation', role: 'system' };
 export const jobState = {};
@@ -63,11 +64,13 @@ export const JOBS = {
   },
 };
 
-export function runJob(name) {
+JOBS.greetings = { label: 'Birthday & anniversary WhatsApp greetings', every_min: 60, run: runGreetings };
+
+export async function runJob(name) {
   const j = JOBS[name];
   if (!j) throw new Error('unknown job');
   try {
-    const result = j.run();
+    const result = await j.run();
     jobState[name] = { last_run: new Date().toISOString(), result, ok: true };
   } catch (e) {
     jobState[name] = { last_run: new Date().toISOString(), result: e.message, ok: false };
@@ -81,7 +84,9 @@ export function startScheduler() {
     const now = Date.now();
     for (const [name, j] of Object.entries(JOBS)) {
       const last = jobState[name]?.last_run ? Date.parse(jobState[name].last_run) : 0;
-      if (now - last >= j.every_min * 60e3) runJob(name);
+      if (j.running || now - last < j.every_min * 60e3) continue;
+      j.running = true;
+      runJob(name).catch((e) => console.error(`[job ${name}]`, e)).finally(() => { j.running = false; });
     }
   };
   setTimeout(tick, 10e3);

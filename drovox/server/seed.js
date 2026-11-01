@@ -1,7 +1,9 @@
-// Seeds the database with a realistic catalogue, staff accounts and ~45 days of demo activity.
-// `npm run seed` wipes and re-seeds; the server seeds automatically when the database is empty.
+// OPTIONAL demo data: a sample catalogue, demo staff/customers and ~45 days of orders, for trying the system.
+// The live system starts empty; this only runs when you ask for it (`npm run demo`, on an empty catalogue)
+// and is used by the automated tests. Never run it on your real shop database.
 import { pathToFileURL } from 'node:url';
-import { all, get, run, DB_FILE } from './db.js';
+import { all, get, run, DB_FILE, getSetting, setSetting } from './db.js';
+import { addStarterCategories } from './catalog.js';
 import { hashPassword, makeReferralCode } from './auth.js';
 import { createOrder, transition, markPaid } from './services/orders.js';
 import { scoreLead } from './services/engine.js';
@@ -81,7 +83,9 @@ export function seed() {
   if (get('SELECT COUNT(*) n FROM products').n > 0) return false;
   console.log('Seeding Drovox demo data…');
 
-  CATS.forEach(([name, slug, icon], i) => run('INSERT INTO categories(name, slug, icon, sort) VALUES (?,?,?,?)', name, slug, icon, i));
+  addStarterCategories();
+  setSetting('engagement', { ...getSetting('engagement'), welcome_coupon: 'WELCOME10', abandoned_cart_coupon: 'COMEBACK5' });
+  setSetting('store', { ...getSetting('store'), legal_name: 'Drovox Demo Store', gstin: '27AAAAA0000A1Z5', address: 'Pune, Maharashtra, India', support_phone: '+91 90000 00000', support_email: 'support@drovox.in' });
   const sup = [
     ['Shenzhen Huaqiang Electronics Co.', 'Shenzhen', 'Lily Chen', 'sales@hqe-sz.example', 'lily_hqe', 18],
     ['Dongguan RC Power Ltd', 'Dongguan', 'Kevin Wu', 'kevin@dgrc.example', 'kevinwu_rc', 25],
@@ -213,5 +217,5 @@ export function seed() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  if (seed() === false) console.log(`Database already has data (${DB_FILE}). Use \`npm run reseed\` to wipe and re-seed.`);
+  if (seed() === false) console.log(`The catalogue already has products (${DB_FILE}); demo data was not added.`);
 }

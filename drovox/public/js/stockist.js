@@ -2,24 +2,39 @@
 import { $, $$, api, esc, money, num, toast, modal, badge, ago, art, formData, downloadCsv } from './common.js';
 import { startPanel, head, kpi } from './panel.js';
 import { openOrder } from './orders-ui.js';
+import { LABEL_SIZES, printProductLabels, printBoxLabels, printJobLabel } from './labels.js';
+import { scanWithCamera } from './scanner.js';
 
-let CATS = []; let SUPPLIERS = [];
+let CATS = []; let SUPPLIERS = []; let STORE = null;
 const B = '/stock';
 
-async function refs() {
-  if (!CATS.length) [CATS, SUPPLIERS] = await Promise.all([api('/categories'), api(`${B}/suppliers`)]);
+/** Drops ?new=1 from the URL so re-rendering a page doesn't reopen the "new" form. */
+function clearNew(params) {
+  if (!params.has('new')) return;
+  params.delete('new');
+  history.replaceState(null, '', `${location.pathname}${location.hash.split('?')[0]}${params.toString() ? `?${params}` : ''}`);
+}
+
+async function refs(force = false) {
+  if (force || !STORE) [CATS, SUPPLIERS, STORE] = await Promise.all([api(`${B}/categories`), api(`${B}/suppliers`), api(`${B}/store-info`)]);
 }
 
 const STOCK_BADGE = { out: ['red', 'Out of stock'], critical: ['red', 'Critical'], low: ['amber', 'Low'], ok: ['green', 'Healthy'] };
 
 async function dashboard(el) {
   const d = await api(`${B}/dashboard`);
-  el.innerHTML = `${head('Warehouse overview', '<a class="btn" href="#/orders?status=confirmed">Start packing →</a><button class="btn" id="pick">📋 Pick list</button>')}
+  const step = (done, n, text, href, cta) => `<div class="row between" style="padding:10px 0;border-bottom:1px solid var(--line)"><div class="row"><span class="badge ${done ? 'green' : ''}">${done ? '✓' : n}</span><span>${text}</span></div>${done ? '' : `<a class="btn sm primary" href="${href}">${cta}</a>`}</div>`;
+  const onboarding = d.products ? '' : `<div class="card" style="margin-bottom:16px"><h3>👋 Let's set up your warehouse</h3><p class="small muted">Your shop is empty — nothing is shown to customers until you add products with stock.</p>
+    ${step(d.categories > 0, 1, 'Create product categories (each gets a short code used in Drovox SKUs, e.g. SEN → DRV-SEN-0001)', '#/categories', 'Add categories')}
+    ${step(d.products > 0, 2, 'Add your first product — the SKU is generated automatically', '#/products?new=1', 'Add product')}
+    ${step(false, 3, 'Print barcode stickers for the boxes and bins', '#/labels', 'Labels')}
+    ${step(false, 4, 'Receive stock by scanning (USB scanner or phone camera)', '#/scan', 'Scan stock')}</div>`;
+  el.innerHTML = `${head('Warehouse overview', '<a class="btn primary" href="#/scan">📷 Scan stock</a><a class="btn" href="#/orders?status=confirmed">Start packing →</a><button class="btn" id="pick">📋 Pick list</button>')}${onboarding}
     <div class="grid g4">${kpi('To pack', d.to_pack, 'confirmed orders')}${kpi('To ship', d.to_ship, 'packed, awaiting courier')}${kpi('In transit', d.in_transit)}${kpi("Today's orders", d.today_orders)}</div>
-    <div class="grid g4" style="margin-top:16px">${kpi('Low / critical SKUs', d.low_stock, `${d.out_of_stock} out of stock`)}${kpi('Stock value (cost)', money(d.stock_value))}${kpi('Incoming import batches', d.incoming_batches)}<div class="card kpi"><div class="l">Quick actions</div><div class="row" style="margin-top:8px"><a class="btn sm primary" href="#/products?new=1">+ Product</a><a class="btn sm" href="#/imports?new=1">+ Import batch</a></div></div></div>
+    <div class="grid g4" style="margin-top:16px">${kpi('Low / critical SKUs', d.low_stock, `${d.out_of_stock} out of stock`)}${kpi('Stock value (cost)', money(d.stock_value))}${kpi('Custom orders', d.jobs_open, `${d.jobs_ready ? `<a class="link" href="#/jobs?status=ready">${d.jobs_ready} ready for pickup →</a>` : 'in progress / pending'}`)}<div class="card kpi"><div class="l">Quick actions</div><div class="row" style="margin-top:8px"><a class="btn sm primary" href="#/products?new=1">+ Product</a><a class="btn sm" href="#/imports?new=1">+ Import</a><a class="btn sm" href="#/jobs?new=1">+ Custom</a></div></div></div>
     <div class="grid g2" style="margin-top:16px;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)">
       <div class="card"><div class="row between"><h3>Latest orders</h3><a class="link small" href="#/orders">All orders →</a></div><div class="table-wrap"><table class="t"><thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Status</th></tr></thead><tbody>
-        ${d.latest_orders.map((o) => `<tr class="click" data-o="${o.id}"><td><b>${esc(o.order_no)}</b><div class="tiny muted">${ago(o.created_at)}</div></td><td>${esc(o.ship_name)}</td><td class="small">${esc((o.summary || '').slice(0, 60))}</td><td>${money(o.total)}${o.payment_method === 'cod' ? ' <span class="badge amber">COD</span>' : ''}</td><td>${badge(o.status, o.status_label)}</td></tr>`).join('')}</tbody></table></div></div>
+        ${d.latest_orders.length ? '' : '<tr><td colspan="5" class="muted">No orders yet</td></tr>'}${d.latest_orders.map((o) => `<tr class="click" data-o="${o.id}"><td><b>${esc(o.order_no)}</b><div class="tiny muted">${ago(o.created_at)}</div></td><td>${esc(o.ship_name)}</td><td class="small">${esc((o.summary || '').slice(0, 60))}</td><td>${money(o.total)}${o.payment_method === 'cod' ? ' <span class="badge amber">COD</span>' : ''}</td><td>${badge(o.status, o.status_label)}</td></tr>`).join('')}</tbody></table></div></div>
       <div class="card"><div class="row between"><h3>⚠️ Stock alerts</h3><a class="link small" href="#/reorder">Reorder plan →</a></div>
         ${d.alerts.map((a) => `<div class="row between" style="padding:8px 0;border-bottom:1px solid var(--line)"><div><b class="small">${esc(a.name)}</b><div class="tiny muted">${esc(a.sku)} · ${a.stock} left${a.days_of_cover != null ? ` · ~${a.days_of_cover} days cover` : ''}${a.incoming ? ` · ${a.incoming} incoming` : ''}</div></div><span class="badge ${STOCK_BADGE[a.status][0]}">${STOCK_BADGE[a.status][1]}</span></div>`).join('') || '<p class="muted">All stock levels healthy 🎉</p>'}</div>
     </div>`;
@@ -40,13 +55,19 @@ async function orders(el, params) {
   const bulk = { confirmed: ['packed', 'Mark selected packed'], packed: ['shipped', 'Ship selected'], shipped: ['delivered', 'Mark selected delivered'], out_for_delivery: ['delivered', 'Mark selected delivered'] }[status];
   el.innerHTML = `${head('Orders', `<form id="of" class="row"><input name="q" placeholder="Order no, name, phone" value="${esc(q)}" style="width:220px"><button class="btn">Search</button></form>`)}
     <div class="tabs">${tabs.map(([s, l]) => `<a href="#/orders?status=${s}" class="${s === status ? 'on' : ''}">${l}</a>`).join('')}</div>
-    ${bulk ? `<div class="row" style="margin-bottom:10px"><label class="check"><input type="checkbox" id="all"> Select all</label>${status === 'packed' ? '<select id="courier" style="width:160px"><option>Delhivery</option><option>Blue Dart</option><option>DTDC</option><option>Ekart</option><option>XpressBees</option></select>' : ''}<button class="btn primary sm" id="bulk">${bulk[1]}</button></div>` : ''}
+    ${bulk ? `<div class="row" style="margin-bottom:10px"><label class="check"><input type="checkbox" id="all"> Select all</label>${status === 'packed' ? '<select id="courier" style="width:160px"><option>Delhivery</option><option>Blue Dart</option><option>DTDC</option><option>Ekart</option><option>XpressBees</option></select>' : ''}<button class="btn primary sm" id="bulk">${bulk[1]}</button><button class="btn sm" id="boxlbl">🏷️ Box labels for selected</button></div>` : ''}
     <div class="card table-wrap"><table class="t"><thead><tr>${bulk ? '<th></th>' : ''}<th>Order</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th></tr></thead><tbody>
     ${rows.map((o) => `<tr class="click" data-o="${o.id}">${bulk ? `<td><input type="checkbox" data-sel="${o.id}"></td>` : ''}<td><b>${esc(o.order_no)}</b><div class="tiny muted">${ago(o.created_at)}</div></td><td>${esc(o.ship_name)}<div class="tiny muted">${esc((o.ship_address || '').split(', ').slice(-2).join(', '))}</div></td>
       <td class="small">${esc((o.summary || '').slice(0, 70))}</td><td>${money(o.total)}</td><td>${o.payment_method === 'cod' ? `<span class="badge amber">COD${o.payment_status === 'paid' ? ' ✓' : ''}</span>` : `<span class="badge ${o.payment_status === 'paid' ? 'green' : ''}">${esc(o.payment_status)}</span>`}</td><td>${badge(o.status, o.status_label)}${o.awb ? `<div class="tiny muted">${esc(o.courier)} ${esc(o.awb)}</div>` : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">No orders here</td></tr>'}</tbody></table></div>`;
   $('#of').onsubmit = (e) => { e.preventDefault(); location.hash = `#/orders?status=${status}&q=${encodeURIComponent(formData(e.target).q)}`; };
   $$('[data-o]', el).forEach((r) => { r.onclick = (e) => { if (e.target.matches('input')) return; openOrder(B, r.dataset.o, () => orders(el, params)); }; });
   $('#all')?.addEventListener('change', (e) => $$('[data-sel]').forEach((c) => { c.checked = e.target.checked; }));
+  $('#boxlbl')?.addEventListener('click', async () => {
+    const ids = $$('[data-sel]').filter((c) => c.checked).map((c) => c.dataset.sel);
+    if (!ids.length) return toast('Select at least one order', 'err');
+    await refs();
+    printBoxLabels(await Promise.all(ids.map((id) => api(`${B}/orders/${id}`))), STORE);
+  });
   $('#bulk')?.addEventListener('click', async () => {
     const ids = $$('[data-sel]').filter((c) => c.checked).map((c) => c.dataset.sel);
     if (!ids.length) return toast('Select at least one order', 'err');
@@ -59,9 +80,12 @@ function productForm(p = {}) {
   const tiers = p.tiers ? (typeof p.tiers === 'string' ? JSON.parse(p.tiers) : p.tiers) : [];
   const specs = p.specs ? (typeof p.specs === 'string' ? JSON.parse(p.specs) : p.specs) : {};
   return `<form class="form two" id="pf">
-    <label class="f">SKU<input name="sku" required value="${esc(p.sku || 'DRV-')}"></label><label class="f">Icon (emoji)<input name="image" value="${esc(p.image || '📦')}" maxlength="4"></label>
+    ${CATS.length ? '' : '<div class="full banner brand"><div>Create a category first — its code becomes part of the SKU.</div><a class="btn sm primary" href="#/categories">Add categories</a></div>'}
+    <label class="f">Category<select name="category_id">${CATS.map((c) => `<option value="${c.id}" ${c.id === p.category_id ? 'selected' : ''}>${c.icon} ${esc(c.name)} (${esc(c.code || '')})</option>`).join('')}</select></label>
+    <label class="f">Drovox SKU <span class="muted">(auto from category)</span><div class="row" style="flex-wrap:nowrap;margin-top:4px"><input name="sku" value="${esc(p.sku || '')}" placeholder="auto e.g. DRV-SEN-0001" style="text-transform:uppercase"><button type="button" class="btn sm" id="gen-sku" title="Generate next SKU">↻</button></div></label>
+    <label class="f">Manufacturer barcode (EAN/UPC, optional)<div class="row" style="flex-wrap:nowrap;margin-top:4px"><input name="barcode" value="${esc(p.barcode || '')}" placeholder="scan or type"><button type="button" class="btn sm" id="scan-bc" title="Scan with camera">📷</button></div></label>
+    <label class="f">Icon (emoji, shown until photos are added)<input name="image" value="${esc(p.image || '📦')}" maxlength="4"></label>
     <label class="f full">Product name<input name="name" required value="${esc(p.name || '')}"></label>
-    <label class="f">Category<select name="category_id">${CATS.map((c) => `<option value="${c.id}" ${c.id === p.category_id ? 'selected' : ''}>${c.icon} ${esc(c.name)}</option>`).join('')}</select></label>
     <label class="f">Supplier<select name="supplier_id"><option value="">—</option>${SUPPLIERS.map((s) => `<option value="${s.id}" ${s.id === p.supplier_id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
     <label class="f">Brand<input name="brand" value="${esc(p.brand || '')}"></label><label class="f">HSN code<input name="hsn" value="${esc(p.hsn || '8542')}"></label>
     <label class="f">Selling price (₹, incl. GST)<input name="price" type="number" step="0.01" required value="${p.price ?? ''}"></label><label class="f">MRP (₹)<input name="mrp" type="number" step="0.01" required value="${p.mrp ?? ''}"></label>
@@ -94,26 +118,35 @@ async function products(el, params) {
   const q = params.get('q') || '';
   const rows = await api(`${B}/products?q=${encodeURIComponent(q)}`);
   el.innerHTML = `${head('Products & stock', `<form id="sf" class="row"><input name="q" placeholder="Search name, SKU, tag" value="${esc(q)}" style="width:220px"><button class="btn">Search</button></form><button class="btn" id="csv">⬇ CSV</button><button class="btn primary" id="new">+ Add product</button>`)}
-    <div class="card table-wrap"><table class="t"><thead><tr><th></th><th>Product</th><th>Category</th><th class="r">Price</th><th class="r">Cost</th><th class="r">Margin</th><th class="r">Stock</th><th></th></tr></thead><tbody>
+    ${rows.length ? '' : `<div class="empty card"><div class="big">📦</div><h3>No products yet</h3><p>Add your first product — the Drovox SKU is created for you.</p><button class="btn primary" onclick="location.hash='#/products?new=1'">+ Add product</button></div>`}
+    <div class="card table-wrap ${rows.length ? '' : 'hidden'}"><table class="t"><thead><tr><th></th><th>Product</th><th>Category</th><th class="r">Price</th><th class="r">Cost</th><th class="r">Margin</th><th class="r">Stock</th><th></th></tr></thead><tbody>
     ${rows.map((p) => { const net = p.price / (1 + p.gst_rate / 100); const mg = p.cost_price ? Math.round((1 - p.cost_price / net) * 100) : null; return `<tr>
-      <td>${art(p, 'xs')}</td><td><b>${esc(p.name)}</b><div class="tiny muted"><span class="code">${esc(p.sku)}</span> ${p.active ? '' : '<span class="badge">hidden</span>'} ${esc(p.supplier || '')}</div></td><td class="small">${esc(p.category || '')}</td>
+      <td>${art(p, 'xs')}</td><td><b>${esc(p.name)}</b><div class="tiny muted"><span class="code">${esc(p.sku)}</span>${p.barcode ? ` · ${esc(p.barcode)}` : ''} ${p.active ? '' : '<span class="badge">hidden</span>'} ${esc(p.supplier || '')}</div></td><td class="small">${esc(p.category || '')}</td>
       <td class="r">${money(p.price)}<div class="tiny muted">MRP ${money(p.mrp)}</div></td><td class="r">${money(p.cost_price, 2)}</td><td class="r">${mg == null ? '—' : `<span class="badge ${mg >= 40 ? 'green' : mg >= 20 ? 'amber' : 'red'}">${mg}%</span>`}</td>
       <td class="r"><b style="color:${p.stock <= 0 ? 'var(--red)' : p.stock <= p.reorder_level ? 'var(--amber)' : 'inherit'}">${num(p.stock)}</b><div class="tiny muted">reorder at ${p.reorder_level}</div></td>
-      <td class="nowrap"><button class="btn sm" data-adj="${p.id}">± Stock</button> <button class="btn sm" data-edit="${p.id}">Edit</button> <button class="btn sm ghost" data-hist="${p.id}">History</button></td></tr>`; }).join('')}</tbody></table></div>`;
+      <td class="nowrap"><button class="btn sm" data-adj="${p.id}">± Stock</button> <button class="btn sm" data-lbl="${p.id}" title="Print labels">🏷️</button> <button class="btn sm" data-edit="${p.id}">Edit</button> <button class="btn sm ghost" data-hist="${p.id}">History</button></td></tr>`; }).join('')}</tbody></table></div>`;
   const byId = (id) => rows.find((p) => p.id === Number(id));
   const edit = (p) => {
     const m = modal(`<h2>${p ? 'Edit product' : 'New product'}</h2>${productForm(p || {})}`, { wide: true });
     const form = $('#pf', m.el); wireMargin(form);
+    const skuIn = form.elements.sku; let skuTouched = !!p;
+    skuIn.addEventListener('input', () => { skuTouched = true; });
+    const genSku = async () => { if (!form.elements.category_id.value) return; skuIn.value = (await api(`${B}/sku-next?category_id=${form.elements.category_id.value}`)).sku; };
+    $('#gen-sku', m.el).onclick = () => { skuTouched = false; genSku(); };
+    form.elements.category_id?.addEventListener('change', () => { if (!skuTouched) genSku(); });
+    if (!p) genSku();
+    $('#scan-bc', m.el).onclick = () => scanWithCamera((code) => { form.elements.barcode.value = code; }, { continuous: false, title: 'Scan the manufacturer barcode' });
     form.onsubmit = async (e) => {
       e.preventDefault();
-      try { await api(p ? `${B}/products/${p.id}` : `${B}/products`, { method: p ? 'PUT' : 'POST', body: readProductForm(form) }); toast(p ? 'Product saved' : 'Product created'); m.close(); products(el, params); } catch (err) { toast(err.message, 'err'); }
+      try { await api(p ? `${B}/products/${p.id}` : `${B}/products`, { method: p ? 'PUT' : 'POST', body: readProductForm(form) }); toast(p ? 'Product saved' : 'Product created'); m.close(); clearNew(params); products(el, params); } catch (err) { toast(err.message, 'err'); }
     };
   };
   $('#new').onclick = () => edit(null);
   if (params.get('new')) edit(null);
   $('#sf').onsubmit = (e) => { e.preventDefault(); location.hash = `#/products?q=${encodeURIComponent(formData(e.target).q)}`; };
-  $('#csv').onclick = () => downloadCsv('drovox-products.csv', rows.map((p) => ({ sku: p.sku, name: p.name, category: p.category, price: p.price, mrp: p.mrp, cost: p.cost_price, gst: p.gst_rate, hsn: p.hsn, stock: p.stock, reorder_level: p.reorder_level })));
+  $('#csv').onclick = () => downloadCsv('drovox-products.csv', rows.map((p) => ({ sku: p.sku, name: p.name, category: p.category, price: p.price, mrp: p.mrp, cost: p.cost_price, gst: p.gst_rate, hsn: p.hsn, stock: p.stock, reorder_level: p.reorder_level, barcode: p.barcode || '' })));
   $$('[data-edit]', el).forEach((b) => { b.onclick = () => edit(byId(b.dataset.edit)); });
+  $$('[data-lbl]', el).forEach((b) => { b.onclick = () => labelDialog([byId(b.dataset.lbl)]); });
   $$('[data-adj]', el).forEach((b) => { b.onclick = () => {
     const p = byId(b.dataset.adj);
     const m = modal(`<h2>Adjust stock</h2><p>${esc(p.name)} — currently <b>${p.stock}</b></p><form class="form two"><label class="f">Change (+ add / − remove)<input name="change" type="number" required></label>
@@ -188,14 +221,159 @@ async function suppliers(el) {
   };
 }
 
+// ------------------------------------------------------------------ labels
+async function labelDialog(products) {
+  await refs();
+  const m = modal(`<h2>Print labels</h2><form class="form" id="lf">
+    <label class="f">Label size<select name="size">${Object.entries(LABEL_SIZES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select></label>
+    ${products.map((p) => `<div class="row between"><span class="small"><b>${esc(p.name)}</b> <span class="code">${esc(p.sku)}</span></span><label class="row small">Copies <input type="number" min="1" value="${Math.max(1, Math.min(p.stock || 1, 200))}" data-copies="${p.id}" style="width:80px"></label></div>`).join('')}
+    <label class="check"><input type="checkbox" name="price" checked> Show MRP on the label</label>
+    <button class="btn primary">🖨️ Print</button></form>`);
+  $('#lf', m.el).onsubmit = (e) => {
+    e.preventDefault(); const f = formData(e.target);
+    printProductLabels(products.map((p) => ({ product: p, copies: Number($(`[data-copies="${p.id}"]`, m.el).value) || 1 })), f.size, STORE, { showPrice: f.price });
+  };
+}
+
+async function labels(el) {
+  await refs();
+  const rows = await api(`${B}/products`);
+  el.innerHTML = `${head('Labels & stickers', '<button class="btn primary" id="print">🖨️ Print selected</button>')}
+    <p class="small muted">Product stickers carry the Drovox SKU as a Code128 barcode (or the manufacturer barcode if set) plus a QR code on larger sizes — scanning either one in <a class="link" href="#/scan">Scan stock</a> finds the product. Box / shipping labels (100 × 150 mm) are printed from <a class="link" href="#/orders?status=confirmed">Orders</a>; custom-order tags from <a class="link" href="#/jobs">Custom orders</a>.</p>
+    <div class="card flat row" style="margin-bottom:12px"><input id="flt" placeholder="Filter by name or SKU" style="max-width:280px"><label class="row small">Size <select id="size" style="width:auto">${Object.entries(LABEL_SIZES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select></label>
+      <label class="check"><input type="checkbox" id="price" checked> Show MRP</label><label class="check"><input type="checkbox" id="all"> Select all</label></div>
+    <div class="card table-wrap"><table class="t"><thead><tr><th></th><th>Product</th><th>SKU / barcode</th><th class="r">Stock</th><th class="r">Copies</th></tr></thead><tbody>
+    ${rows.map((p) => `<tr data-row="${esc(`${p.name} ${p.sku}`.toLowerCase())}"><td><input type="checkbox" data-pick="${p.id}"></td><td>${esc(p.name)}</td><td class="small"><span class="code">${esc(p.sku)}</span>${p.barcode ? ` · ${esc(p.barcode)}` : ''}</td><td class="r">${p.stock}</td><td class="r"><input type="number" min="1" value="${Math.max(1, p.stock)}" data-copies="${p.id}" style="width:80px"></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Add products first</td></tr>'}</tbody></table></div>`;
+  $('#flt').oninput = (e) => $$('[data-row]', el).forEach((r) => r.classList.toggle('hidden', !r.dataset.row.includes(e.target.value.toLowerCase())));
+  $('#all').onchange = (e) => $$('[data-row]:not(.hidden) [data-pick]', el).forEach((c) => { c.checked = e.target.checked; });
+  $('#print').onclick = () => {
+    const items = $$('[data-pick]', el).filter((c) => c.checked).map((c) => ({ product: rows.find((p) => p.id === Number(c.dataset.pick)), copies: Number($(`[data-copies="${c.dataset.pick}"]`, el).value) || 1 }));
+    if (!items.length) return toast('Tick the products to print', 'err');
+    printProductLabels(items, $('#size').value, STORE, { showPrice: $('#price').checked });
+  };
+}
+
+// ------------------------------------------------------------------ categories
+async function categories(el) {
+  await refs();
+  const rows = await api(`${B}/categories`);
+  el.innerHTML = `${head('Categories & SKU codes', `${rows.length ? '' : '<button class="btn" id="starter">Add starter categories</button>'}<button class="btn primary" id="new">+ New category</button>`)}
+    <p class="small muted">Each category has a short code. New products get the next Drovox SKU automatically: <span class="code">${esc((STORE?.sku_prefix) || 'DRV')}-&lt;CODE&gt;-0001</span>, e.g. Sensors (SEN) → <span class="code">DRV-SEN-0001</span>, <span class="code">DRV-SEN-0002</span>…</p>
+    ${rows.length ? `<div class="card table-wrap"><table class="t"><thead><tr><th>Icon</th><th>Name</th><th>Code</th><th>Next SKU</th><th class="r">Products</th><th class="r">Order</th><th></th></tr></thead><tbody>
+      ${rows.map((c) => `<tr><td style="font-size:1.4rem">${esc(c.icon || '📦')}</td><td><b>${esc(c.name)}</b></td><td class="code">${esc(c.code || '')}</td><td class="code" data-next="${c.id}">…</td><td class="r">${c.products}</td><td class="r">${c.sort}</td>
+        <td class="nowrap"><button class="btn sm" data-ed="${c.id}">Edit</button> ${c.products ? '' : `<button class="btn sm danger" data-del="${c.id}">Delete</button>`}</td></tr>`).join('')}</tbody></table></div>`
+    : '<div class="empty card"><div class="big">🗂️</div><h3>No categories yet</h3><p>Create your own, or start from the standard electronics list (boards, sensors, motors, drone, power, displays, IoT, mechanical, tools, 3D printing, LEDs) and edit it.</p></div>'}`;
+  $$('[data-next]', el).forEach(async (td) => { td.textContent = (await api(`${B}/sku-next?category_id=${td.dataset.next}`)).sku; });
+  const form = (c = {}) => `<form class="form two"><label class="f full">Name<input name="name" required value="${esc(c.name || '')}" placeholder="e.g. Sensors & Modules"></label>
+    <label class="f">Code (2–5 letters, used in SKU)<input name="code" maxlength="5" value="${esc(c.code || '')}" placeholder="auto: first 3 letters" style="text-transform:uppercase"></label>
+    <label class="f">Icon (emoji)<input name="icon" maxlength="4" value="${esc(c.icon || '📦')}"></label><label class="f">Display order<input name="sort" type="number" value="${c.sort ?? rows.length}"></label>
+    ${c.id && c.products ? '<div class="full small muted">Changing the code only affects new SKUs; existing products keep theirs.</div>' : ''}<button class="btn primary full">Save</button></form>`;
+  const open = (c) => {
+    const m = modal(`<h2>${c ? 'Edit category' : 'New category'}</h2>${form(c || {})}`);
+    $('form', m.el).onsubmit = async (e) => { e.preventDefault(); try { await api(c ? `${B}/categories/${c.id}` : `${B}/categories`, { method: c ? 'PUT' : 'POST', body: formData(e.target) }); await refs(true); toast('Category saved'); m.close(); categories(el); } catch (err) { toast(err.message, 'err'); } };
+  };
+  $('#new').onclick = () => open(null);
+  $('#starter')?.addEventListener('click', async () => { const r = await api(`${B}/categories/starter`, { method: 'POST' }); await refs(true); toast(`${r.added} categories added`); categories(el); });
+  $$('[data-ed]', el).forEach((b) => { b.onclick = () => open(rows.find((c) => c.id === Number(b.dataset.ed))); });
+  $$('[data-del]', el).forEach((b) => { b.onclick = async () => { if (!confirm('Delete this category?')) return; try { await api(`${B}/categories/${b.dataset.del}`, { method: 'DELETE' }); await refs(true); categories(el); } catch (err) { toast(err.message, 'err'); } }; });
+}
+
+// ------------------------------------------------------------------ scan stock in / out
+async function scan(el) {
+  const log = [];
+  el.innerHTML = `${head('Scan stock in / out')}
+    <div class="grid g2" style="grid-template-columns:minmax(0,1fr) minmax(0,1.2fr)">
+      <div class="card stack">
+        <div class="tabs" id="mode" style="margin-bottom:0"><a data-m="in" class="on">⬇ Stock IN</a><a data-m="out">⬆ Stock OUT</a><a data-m="find">🔍 Look up</a></div>
+        <div class="form two"><label class="f">Quantity per scan<input type="number" id="qty" min="1" value="1"></label>
+          <label class="f">Reason<select id="reason"><option>Received from supplier</option><option>Physical count correction</option><option>Customer return</option><option>Counter sale</option><option>Damaged / defective</option><option>Used for custom order</option><option>Sample / internal use</option></select></label></div>
+        <form id="sf"><label class="f">Scan here (USB / Bluetooth scanner types into this box)<input id="code" autocomplete="off" placeholder="Click here, then scan a barcode or QR" style="font-size:1.2rem;padding:14px"></label></form>
+        <button class="btn primary lg" id="cam">📷 Scan with camera</button>
+        <div class="small muted">Works with Drovox SKU stickers, manufacturer barcodes and the QR codes on labels. Scanning an order or custom-job number opens it. Repeat scans add up (5 scans × qty 1 = 5 units).</div>
+      </div>
+      <div class="card"><div class="row between"><h3>This session</h3><span class="small muted" id="sum"></span></div><div id="log"><p class="muted small">Nothing scanned yet.</p></div></div>
+    </div>`;
+  let mode = 'in';
+  const input = $('#code');
+  const focus = () => setTimeout(() => input.focus(), 50); focus();
+  $$('#mode a', el).forEach((a) => { a.onclick = () => { mode = a.dataset.m; $$('#mode a', el).forEach((x) => x.classList.toggle('on', x === a)); $('#reason').value = mode === 'out' ? 'Counter sale' : 'Received from supplier'; focus(); }; });
+  const render = () => {
+    $('#log').innerHTML = log.length ? `<table class="t"><tbody>${log.map((l) => `<tr><td>${art(l.product || {}, 'xs')}</td><td class="small"><b>${esc(l.product?.name || l.code)}</b><div class="tiny muted">${esc(l.product?.sku || '')} ${l.note ? `· ${esc(l.note)}` : ''}</div></td>
+      <td class="r" style="color:${l.change > 0 ? 'var(--green)' : l.change < 0 ? 'var(--red)' : 'inherit'}">${l.change ? (l.change > 0 ? '+' : '') + l.change : ''}</td><td class="r small">${l.stock != null ? `now ${l.stock}` : ''}</td><td>${l.ok ? '✅' : '⚠️'}</td></tr>`).join('')}</tbody></table>` : '<p class="muted small">Nothing scanned yet.</p>';
+    const inn = log.filter((l) => l.ok && l.change > 0).reduce((s, l) => s + l.change, 0); const out = log.filter((l) => l.ok && l.change < 0).reduce((s, l) => s - l.change, 0);
+    $('#sum').textContent = `${inn} in · ${out} out`;
+  };
+  const handle = async (code) => {
+    code = String(code).trim(); if (!code) return;
+    const qty = Math.max(1, Number($('#qty').value) || 1);
+    try {
+      const found = await api(`${B}/scan/${encodeURIComponent(code)}`);
+      if (found.type === 'order') { openOrder(B, found.order.id, () => {}); log.unshift({ code, ok: true, note: `order ${found.order.order_no}` }); }
+      else if (found.type === 'job') { log.unshift({ code, ok: true, note: `custom order ${found.job.job_no} — ${found.job.title} (${found.job.status})` }); }
+      else if (mode === 'find') { const p = found.product; log.unshift({ code, ok: true, product: p, stock: p.stock, note: `${money(p.price)} · ${p.active ? 'live' : 'hidden'}` }); }
+      else {
+        const r = await api(`${B}/scan-adjust`, { method: 'POST', body: { code, change: mode === 'in' ? qty : -qty, reason: $('#reason').value } });
+        log.unshift({ code, ok: true, product: r.product, change: r.change, stock: r.stock });
+        if (navigator.vibrate) navigator.vibrate(60);
+      }
+    } catch (e) { log.unshift({ code, ok: false, note: e.message }); toast(e.message, 'err'); }
+    render();
+  };
+  $('#sf').onsubmit = (e) => { e.preventDefault(); const c = input.value; input.value = ''; handle(c); focus(); };
+  $('#cam').onclick = () => scanWithCamera(handle, { title: mode === 'in' ? 'Scan to add stock' : mode === 'out' ? 'Scan to remove stock' : 'Scan to look up' });
+}
+
+// ------------------------------------------------------------------ custom / made-to-order jobs
+const JOB = { pending: ['', 'Pending'], in_progress: ['blue', 'In progress'], ready: ['green', 'Ready ✓'], delivered: ['teal', 'Delivered'], cancelled: ['red', 'Cancelled'] };
+async function jobs(el, params) {
+  await refs();
+  const st = params.get('status') || '';
+  const d = await api(`${B}/jobs${st ? `?status=${st}` : ''}`);
+  el.innerHTML = `${head('Custom orders', '<button class="btn primary" id="new">+ New custom order</button>')}
+    <p class="small muted">Made-to-order work — assembled kits, wired modules, custom PCBs, project builds. Mark a job <b>Ready</b> and the customer gets a WhatsApp message automatically.</p>
+    <div class="tabs"><a href="#/jobs" class="${!st ? 'on' : ''}">All</a>${Object.entries(JOB).map(([k, [, l]]) => `<a href="#/jobs?status=${k}" class="${st === k ? 'on' : ''}">${l} <b>${d.counts[k] || 0}</b></a>`).join('')}</div>
+    <div class="card table-wrap"><table class="t"><thead><tr><th>Job</th><th>Customer</th><th>What</th><th class="r">Amount</th><th>Due</th><th>Status</th><th></th></tr></thead><tbody>
+    ${d.rows.map((j) => { const late = j.due_date && j.due_date < new Date().toISOString().slice(0, 10) && ['pending', 'in_progress'].includes(j.status); return `<tr>
+      <td><b>${esc(j.job_no)}</b><div class="tiny muted">${ago(j.created_at)}</div></td><td>${esc(j.customer_name)}<div class="tiny muted">${esc(j.phone || '')}</div></td>
+      <td class="small"><b>${esc(j.title)}</b>${j.qty > 1 ? ` × ${j.qty}` : ''}${j.details ? `<div class="tiny muted">${esc(j.details.slice(0, 80))}</div>` : ''}</td>
+      <td class="r">${money(j.price)}${j.advance ? `<div class="tiny muted">paid ${money(j.advance)} · due ${money(j.price - j.advance)}</div>` : ''}</td>
+      <td class="small" style="color:${late ? 'var(--red)' : 'inherit'}">${esc(j.due_date || '—')}${late ? ' · late' : ''}</td><td><span class="badge ${JOB[j.status][0]}">${JOB[j.status][1]}</span></td>
+      <td class="nowrap">${j.status === 'pending' ? `<button class="btn sm" data-st="in_progress" data-j="${j.id}">Start</button>` : ''}${['pending', 'in_progress'].includes(j.status) ? ` <button class="btn sm primary" data-st="ready" data-j="${j.id}">Mark ready</button>` : ''}${j.status === 'ready' ? `<button class="btn sm primary" data-st="delivered" data-j="${j.id}">Delivered</button>` : ''}
+        <button class="btn sm" data-tag="${j.id}" title="Print tag">🏷️</button> <button class="btn sm ghost" data-ed="${j.id}">Edit</button></td></tr>`; }).join('') || '<tr><td colspan="7" class="muted">No custom orders here</td></tr>'}</tbody></table></div>`;
+  const byId = (id) => d.rows.find((j) => j.id === Number(id));
+  const open = (j) => {
+    const m = modal(`<h2>${j ? `Edit ${esc(j.job_no)}` : 'New custom order'}</h2><form class="form two">
+      <label class="f">Customer name<input name="customer_name" required value="${esc(j?.customer_name || '')}"></label><label class="f">WhatsApp number<input name="phone" value="${esc(j?.phone || '')}" inputmode="tel"></label>
+      <label class="f full">What to make<input name="title" required value="${esc(j?.title || '')}" placeholder="e.g. Line follower robot kit, assembled & tested"></label>
+      <label class="f full">Details / specification<textarea name="details" rows="3">${esc(j?.details || '')}</textarea></label>
+      <label class="f">Quantity<input name="qty" type="number" min="1" value="${j?.qty || 1}"></label><label class="f">Due date<input name="due_date" type="date" value="${esc(j?.due_date || '')}"></label>
+      <label class="f">Total price ₹<input name="price" type="number" step="0.01" value="${j?.price || 0}"></label><label class="f">Advance received ₹<input name="advance" type="number" step="0.01" value="${j?.advance || 0}"></label>
+      <label class="f full">Internal notes<textarea name="notes" rows="2">${esc(j?.notes || '')}</textarea></label>
+      ${j && j.status !== 'cancelled' ? `<button type="button" class="btn danger" id="cx">Cancel job</button>` : '<div></div>'}<button class="btn primary">Save</button></form>`, { wide: true });
+    $('form', m.el).onsubmit = async (e) => { e.preventDefault(); try { await api(j ? `${B}/jobs/${j.id}` : `${B}/jobs`, { method: j ? 'PUT' : 'POST', body: formData(e.target) }); toast('Saved'); m.close(); clearNew(params); jobs(el, params); } catch (err) { toast(err.message, 'err'); } };
+    $('#cx', m.el)?.addEventListener('click', async () => { if (!confirm('Cancel this custom order?')) return; await api(`${B}/jobs/${j.id}/status`, { method: 'POST', body: { status: 'cancelled', notify: false } }); m.close(); jobs(el, params); });
+  };
+  $('#new').onclick = () => open(null);
+  if (params.get('new')) open(null);
+  $$('[data-ed]', el).forEach((b) => { b.onclick = () => open(byId(b.dataset.ed)); });
+  $$('[data-tag]', el).forEach((b) => { b.onclick = () => printJobLabel(byId(b.dataset.tag), STORE); });
+  $$('[data-st]', el).forEach((b) => { b.onclick = async () => {
+    const r = await api(`${B}/jobs/${b.dataset.j}/status`, { method: 'POST', body: { status: b.dataset.st } });
+    toast(`${r.job.job_no} → ${JOB[r.job.status][1]}${r.whatsapp ? (r.whatsapp.ok ? (r.whatsapp.simulated ? ' · WhatsApp simulated (gateway not configured)' : ' · customer notified on WhatsApp') : ` · WhatsApp failed: ${r.whatsapp.error}`) : ''}`, r.whatsapp && !r.whatsapp.ok ? 'err' : 'ok');
+    jobs(el, params);
+  }; });
+}
+
 startPanel({
   scope: 'stockist', title: 'Stockist Panel', roles: ['stockist'],
-  demo: 'Demo stockist: stockist@drovox.in / stock123',
+  demo: 'Stockist accounts are created by the owner in Master → Users & roles.',
   switchLink: { href: '/master', label: '🛡️ Master panel' },
   nav: [
     { id: 'dashboard', label: 'Overview', icon: '📊' }, { id: 'orders', label: 'Orders & dispatch', icon: '📦' },
-    { id: 'products', label: 'Products & stock', icon: '🗃️' }, { id: 'imports', label: 'Import batches', icon: '🚢' },
+    { id: 'jobs', label: 'Custom orders', icon: '🛠️' }, { id: 'scan', label: 'Scan stock in / out', icon: '📷' },
+    { id: 'products', label: 'Products & stock', icon: '🗃️' }, { id: 'categories', label: 'Categories & SKU codes', icon: '🗂️' },
+    { id: 'labels', label: 'Labels & stickers', icon: '🏷️' }, { id: 'imports', label: 'Import batches', icon: '🚢' },
     { id: 'reorder', label: 'Reorder planning', icon: '📈' }, { id: 'suppliers', label: 'Suppliers', icon: '🏭' },
   ],
-  pages: { dashboard, orders, products, imports, reorder, suppliers },
+  pages: { dashboard, orders, jobs, scan, products, categories, labels, imports, reorder, suppliers },
 });

@@ -66,7 +66,7 @@ function renderHeader() {
   $('#nav-account-lbl').textContent = S.user ? `${S.user.name.split(' ')[0]} · ${num(S.user.points)} pts` : 'Sign in';
   $('#nav-account').href = S.user ? '#/account' : '#/login';
   const path = location.hash.split('?')[0];
-  $('#catbar').innerHTML = `<a href="#/search" class="${path === '#/search' ? 'on' : ''}">All products</a>` + S.cats.map((c) => `<a href="#/c/${c.slug}" class="${path === '#/c/' + c.slug ? 'on' : ''}">${c.icon} ${esc(c.name)}</a>`).join('') + '<a href="#/builder">✨ AI Project Builder</a>';
+  $('#catbar').innerHTML = `<a href="#/search" class="${path === '#/search' ? 'on' : ''}">All products</a>` + S.cats.filter((c) => c.count).map((c) => `<a href="#/c/${c.slug}" class="${path === '#/c/' + c.slug ? 'on' : ''}">${c.icon} ${esc(c.name)}</a>`).join('') + '<a href="#/builder">✨ AI Project Builder</a>';
 }
 let sugT;
 $('#q').addEventListener('input', (e) => {
@@ -88,11 +88,17 @@ $('#search-form').addEventListener('submit', (e) => { e.preventDefault(); $('#su
 async function pageHome() {
   setTitle('');
   const [home, recentItems] = await Promise.all([api('/home'), recent.get().length ? api('/products/batch', { method: 'POST', body: { ids: recent.get() } }) : []]);
+  if (!home.trending.length && !home.new_arrivals.length) {
+    app.innerHTML = `<div class="hero"><div><span class="badge brand">Opening soon</span><h1 style="margin-top:12px">${esc(S.cfg.store.name)} — components for makers &amp; engineers</h1>
+      <p>Our catalogue is being stocked right now. Leave your requirement and we'll WhatsApp you with prices and availability.</p>
+      <div class="row" style="margin-top:16px"><a class="btn primary lg" href="#/bulk">Request parts / quote</a>${S.user ? '' : '<a class="btn lg" style="background:transparent;color:#fff;border-color:#475569" href="#/register">Create account</a>'}</div></div></div>`;
+    return;
+  }
   const today = new Date().toISOString().slice(0, 10);
   const checkin = S.user && S.user.last_checkin !== today
     ? `<div class="banner brand section"><div>🎁 <b>Daily check-in:</b> collect ${S.cfg.loyalty.daily_checkin} Drovox points today${S.user.checkin_streak ? ` · ${S.user.checkin_streak}-day streak, keep it going for a 7-day bonus!` : ''}</div><button class="btn primary sm" id="checkin">Collect points</button></div>` : '';
   const refer = S.user ? `<div class="banner teal section"><div>🤝 <b>Refer a friend:</b> they get ${S.cfg.loyalty.referee_bonus} points, you get ${S.cfg.loyalty.referrer_bonus} when their first order is delivered. Your code <span class="code">${esc(S.user.referral_code)}</span></div><a class="btn sm" href="#/account">Share</a></div>`
-    : `<div class="banner teal section"><div>🎉 New here? Sign up for <b>${S.cfg.loyalty.signup_bonus} bonus points</b> and use <span class="code">${esc(S.cfg.engagement.welcome_coupon)}</span> for 10% off your first order.</div><a class="btn sm primary" href="#/register">Create account</a></div>`;
+    : `<div class="banner teal section"><div>🎉 New here? Sign up for <b>${S.cfg.loyalty.signup_bonus} bonus points</b> ${S.cfg.engagement.welcome_coupon ? ` and use <span class="code">${esc(S.cfg.engagement.welcome_coupon)}</span> on your first order` : ''}.</div><a class="btn sm primary" href="#/register">Create account</a></div>`;
   app.innerHTML = `
     <div class="hero">
       <div><span class="badge brand">Imported direct · Tested in India</span><h1 style="margin-top:12px">Every component for your next build.</h1>
@@ -105,7 +111,7 @@ async function pageHome() {
     </div>
     <div class="usp"><div>🚀<span><b>Same-day dispatch</b>Order before 3 PM</span></div><div>🧾<span><b>GST invoice</b>Claim input credit</span></div><div>📦<span><b>Bulk pricing</b>Tiered per-unit rates</span></div><div>⭐<span><b>Earn points</b>${S.cfg.loyalty.earn_per_100} pts per ₹100</span></div></div>
     ${checkin}
-    ${section('Shop by category', '', `<div class="cats">${S.cats.map((c) => `<a href="#/c/${c.slug}"><span>${c.icon}</span>${esc(c.name)}<div class="tiny muted">${c.count} items</div></a>`).join('')}</div>`)}
+    ${!S.cats.some((c) => c.count) ? '' : section('Shop by category', '', `<div class="cats">${S.cats.filter((c) => c.count).map((c) => `<a href="#/c/${c.slug}"><span>${c.icon}</span>${esc(c.name)}<div class="tiny muted">${c.count} items</div></a>`).join('')}</div>`)}
     ${section('🔥 Trending now', 'What makers across India are buying this week', grid(home.trending, 'hscroll'), '<a class="link small" href="#/search?sort=popular">See all →</a>')}
     ${home.recommended.length ? section('Recommended for you', 'Based on what you browsed and what others bought with it', grid(home.recommended, 'hscroll')) : ''}
     ${refer}
@@ -228,7 +234,7 @@ async function pageCart() {
     </div>
     <div class="sticky stack"><div class="card">
       <form id="coupon" class="row" style="flex-wrap:nowrap"><input name="code" placeholder="Coupon code" value="${esc(q.coupon?.code || '')}"><button class="btn">${q.coupon ? 'Change' : 'Apply'}</button></form>
-      ${q.coupon ? `<div class="small" style="color:var(--green);margin-top:6px">✓ ${esc(q.coupon.description || q.coupon.code)} <a class="link" id="rmcoupon">remove</a></div>` : `<div class="tiny muted" style="margin-top:6px">Try <span class="code">${esc(S.cfg.engagement.welcome_coupon)}</span> on your first order</div>`}
+      ${q.coupon ? `<div class="small" style="color:var(--green);margin-top:6px">✓ ${esc(q.coupon.description || q.coupon.code)} <a class="link" id="rmcoupon">remove</a></div>` : (S.cfg.engagement.welcome_coupon ? `<div class="tiny muted" style="margin-top:6px">Try <span class="code">${esc(S.cfg.engagement.welcome_coupon)}</span> on your first order</div>` : '')}
       <hr class="sep">
       ${S.user ? (q.points_available ? `<label class="check"><input type="checkbox" id="usepts" ${st.points ? 'checked' : ''}> Use ${q.points_max_redeemable} of my ${num(q.points_available)} points (−${money(q.points_max_redeemable * S.cfg.loyalty.point_value)})</label><hr class="sep">` : '') : `<div class="small"><a class="link" href="#/login?next=%23%2Fcart">Sign in</a> to use your Drovox points</div><hr class="sep">`}
       ${summaryHtml(q)}
@@ -440,12 +446,12 @@ function pageAuth(mode, params) {
   const ref = params.get('ref') || local.get('drv_ref', '');
   app.innerHTML = `<div style="max-width:440px;margin:0 auto"><div class="card"><h1>${mode === 'login' ? 'Welcome back' : 'Create your Drovox account'}</h1>
     ${mode === 'register' ? `<p class="muted small">Get ${S.cfg.loyalty.signup_bonus} bonus points${ref ? ` + ${S.cfg.loyalty.referee_bonus} referral points` : ''} instantly.</p>` : ''}
-    <form class="form" id="af">${mode === 'register' ? '<label class="f">Full name<input name="name" required autocomplete="name"></label><label class="f">Mobile (for WhatsApp order updates)<input name="phone" required inputmode="tel" autocomplete="tel"></label>' : ''}
+    <form class="form" id="af">${mode === 'register' ? '<label class="f">Full name<input name="name" required autocomplete="name"></label><label class="f">Mobile (for WhatsApp order updates)<input name="phone" required inputmode="tel" autocomplete="tel"></label><label class="f">Birthday (optional — for a birthday surprise 🎂)<input name="dob" type="date"></label>' : ''}
       <label class="f">Email<input name="email" type="email" required autocomplete="email"></label><label class="f">Password<input name="password" type="password" required minlength="6" autocomplete="${mode === 'login' ? 'current-password' : 'new-password'}"></label>
       ${mode === 'register' ? `<label class="f">Referral code (optional)<input name="referral_code" value="${esc(ref)}"></label>` : ''}
       <button class="btn primary lg">${mode === 'login' ? 'Sign in' : 'Create account'}</button></form>
     <p class="small" style="margin-top:14px">${mode === 'login' ? `New to Drovox? <a class="link" href="#/register?next=${encodeURIComponent(next)}">Create an account</a>` : `Already have an account? <a class="link" href="#/login?next=${encodeURIComponent(next)}">Sign in</a>`}</p>
-    ${mode === 'login' ? '<p class="tiny muted">Demo customer: demo@drovox.in / demo123</p>' : ''}</div></div>`;
+    </div></div>`;
   $('#af').onsubmit = async (e) => {
     e.preventDefault();
     try {
@@ -482,7 +488,9 @@ async function pageAccount() {
       <div class="card"><h3>Points history</h3><div class="table-wrap" style="max-height:280px;overflow-y:auto"><table class="t"><tbody>${ledger.map((l) => `<tr><td>${esc({ order: 'Order delivered', redeem: 'Redeemed', signup: 'Signup bonus', referred: 'Referral bonus', referral: 'Friend’s first order', checkin: 'Daily check-in', refund: 'Refunded', return: 'Order returned', manual: 'Adjustment' }[l.reason] || l.reason)} <span class="tiny muted">${esc(l.ref || '')}</span></td><td class="r" style="color:${l.change > 0 ? 'var(--green)' : 'var(--red)'}">${l.change > 0 ? '+' : ''}${l.change}</td><td class="small muted nowrap">${dt(l.created_at, false)}</td></tr>`).join('') || '<tr><td class="muted">No activity yet</td></tr>'}</tbody></table></div></div>
     </div>
     <div class="card section"><h3>Profile</h3><form class="form two" id="pf"><label class="f">Name<input name="name" value="${esc(u.name)}"></label><label class="f">Mobile<input name="phone" value="${esc(u.phone || '')}"></label>
-      <label class="f">Company<input name="company" value="${esc(u.company || '')}"></label><label class="f">GSTIN<input name="gstin" value="${esc(u.gstin || '')}" maxlength="15"></label>
+      <label class="f">Company / college<input name="company" value="${esc(u.company || '')}"></label><label class="f">GSTIN<input name="gstin" value="${esc(u.gstin || '')}" maxlength="15"></label>
+      <label class="f">City<input name="city" value="${esc(u.city || '')}"></label><div></div>
+      <label class="f">Birthday 🎂 <span class="muted">(we'll send you a wish)</span><input name="dob" type="date" value="${esc(u.dob || '')}"></label><label class="f">Anniversary 💐 (optional)<input name="anniversary" type="date" value="${esc(u.anniversary || '')}"></label>
       <label class="check full"><input type="checkbox" name="whatsapp_opt_in" ${u.whatsapp_opt_in ? 'checked' : ''}> Send me order updates and offers on WhatsApp</label>
       <label class="f">New password (optional)<input name="password" type="password" minlength="6" autocomplete="new-password"></label><div class="full"><button class="btn primary">Save</button></div></form></div>`;
   $('#logout').onclick = () => { setToken(null); S.user = null; renderHeader(); location.hash = '#/'; };
@@ -493,11 +501,11 @@ async function pageAccount() {
 
 // ---------------------------------------------------------------- engagement: exit intent offer
 function exitIntent() {
-  if (!S.cfg.engagement.exit_intent || local.get('drv_exit_shown') || S.user) return;
+  if (!S.cfg.engagement.exit_intent || !S.cfg.engagement.welcome_coupon || local.get('drv_exit_shown') || S.user) return;
   document.addEventListener('mouseout', function onOut(e) {
     if (e.relatedTarget || e.clientY > 0) return;
     document.removeEventListener('mouseout', onOut); local.set('drv_exit_shown', 1);
-    const m = modal(`<div style="text-align:center"><div style="font-size:3rem">🎁</div><h2>Wait — here's 10% off your first order</h2><p class="muted">Create a free account to get <b>${S.cfg.loyalty.signup_bonus} bonus points</b>, then use this code at checkout:</p>
+    const m = modal(`<div style="text-align:center"><div style="font-size:3rem">🎁</div><h2>Wait — a welcome gift for your first order</h2><p class="muted">Create a free account to get <b>${S.cfg.loyalty.signup_bonus} bonus points</b>, then use this code at checkout:</p>
       <div class="code" style="font-size:1.5rem;display:inline-block;padding:8px 16px;margin:6px 0 14px">${esc(S.cfg.engagement.welcome_coupon)}</div><div class="row" style="justify-content:center"><a class="btn primary lg" href="#/register" id="go">Claim my offer</a></div></div>`);
     $('#go', m.el).onclick = () => { local.set('drv_checkout', { ...local.get('drv_checkout', {}), coupon: S.cfg.engagement.welcome_coupon }); m.close(); };
   });

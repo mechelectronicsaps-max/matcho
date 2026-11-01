@@ -15,21 +15,52 @@ sell the same kind of products. Everything runs as one Node.js app with three in
 ```bash
 cd drovox
 npm install
-npm start            # http://localhost:3000 (seeds demo data on first run)
+npm start            # http://localhost:3000
 ```
 
 Requires Node.js 22.13+ (uses the built-in `node:sqlite`, no database server needed).
 
-| Demo login | Email | Password |
-|---|---|---|
-| Customer | demo@drovox.in | demo123 |
-| Stockist | stockist@drovox.in | stock123 |
-| Admin (full access) | admin@drovox.in | admin123 |
-| Marketing | marketing@drovox.in | market123 |
-| Support | support@drovox.in | support123 |
+**The shop starts empty** — no demo products, customers or orders. On first start:
 
-`npm run reseed` wipes the database and loads fresh demo data. `npm test` runs the API test suite.
-Change the demo passwords, or create new accounts in Master → Users and disable the demo ones, before going live.
+1. Open **http://localhost:3000/master**. You'll see a setup screen: enter your shop name, GSTIN, address, and your owner login. This creates the admin account.
+2. Open **/stockist** (the same login works) → **Categories & SKU codes**. Add your categories, or click "Add starter categories" for the standard electronics list.
+3. **Products & stock → + Add product**. The Drovox SKU is generated for you (`DRV-SEN-0001`, `DRV-SEN-0002`, …).
+4. **Labels & stickers**: print barcode/QR stickers. **Scan stock in / out**: receive stock with a USB scanner or the phone camera.
+5. **Master → Users & roles**: create logins for stockists, marketing and support staff.
+
+| Command | What it does |
+|---|---|
+| `npm start` | Runs the shop |
+| `npm test` | Automated tests (each uses its own temporary database) |
+| `npm run jobs` | Runs the background automations once (for cron on shared hosting) |
+| `npm run demo` | **Optional:** loads a sample catalogue with fake orders, only into an empty catalogue. For trying things out, never on your real shop |
+| `npm run reset -- --yes` | **Deletes the whole database.** Stop the server and back up `data/drovox.db` first |
+
+Your data lives in a single file, `drovox/data/drovox.db`. Back it up.
+
+## Stock panel tools
+
+- **Drovox SKU codes.** Every category has a short code (Sensors → `SEN`). New products get `<prefix>-<code>-<serial>`, e.g. `DRV-SEN-0007`. The prefix `DRV` can be changed in Settings → Store. You can still type your own SKU.
+- **Barcode & QR scanning** (Scan stock in / out):
+  - USB or Bluetooth handheld scanners work out of the box: click the box and scan. Repeat scans add up.
+  - The phone/laptop camera reads barcodes and QR codes. The camera needs `http://localhost` or `https://`.
+  - A scan finds the product by its Drovox SKU, the manufacturer's EAN/UPC barcode, or the QR on Drovox labels. Scanning an order number opens the order; scanning a custom-job number shows the job.
+  - Every scan is logged in the stock history and the audit trail.
+- **Printing:**
+  - Product stickers: 50×25 mm and 38×25 mm thermal, 100×50 mm with QR, or A4 sheets of 21. Each has a Code128 barcode, the MRP and the SKU.
+  - Box / shipping labels (100×150 mm): COD or prepaid, delivery address, an order barcode, a tracking QR, the AWB barcode, and the sender's address with GSTIN.
+  - Also: the GST invoice, a packing slip, the pick list, and custom-order tags.
+- **Custom orders** (made-to-order kits, assemblies, PCBs):
+  - Record the customer, what to make, the price and the advance paid.
+  - The job moves Pending → In progress → **Ready** → Delivered.
+  - Marking a job **Ready** sends the customer a WhatsApp message with the balance due.
+
+## Customer data & greetings
+
+- Customers can save their birthday, anniversary and city in their account. Staff can add walk-in, phone or WhatsApp customers in **Master → Customers → + Add customer** (no email needed), including birthday, anniversary, notes and WhatsApp consent.
+- **Master → Greetings** lists upcoming birthdays and anniversaries. An hourly job sends the WhatsApp wish once per year per occasion, after the hour you choose. You can also press "Send now".
+  - Edit the messages, and add an optional gift coupon, in Settings → Greetings.
+- Festival wishes (Diwali, Holi, New Year, Eid, Christmas and others) are ready-made templates in **Marketing → WhatsApp campaigns**.
 
 ## Benchmarked features (Robu / Hubtronics / Robotics DNA style)
 
@@ -89,7 +120,7 @@ Unpaid online orders are auto-cancelled after 30 minutes and their stock is rele
 | Integration | What to enter |
 |---|---|
 | **Razorpay** | Key ID and secret from dashboard.razorpay.com. Add a `payment.captured` webhook pointing to `https://YOUR-DOMAIN/api/webhooks/razorpay` with a webhook secret |
-| **WhatsApp Cloud API** | Phone number ID and permanent access token from Meta. Approve the templates `order_confirmed`, `order_shipped` and `order_delivered`, then turn on "Use approved templates" |
+| **WhatsApp (msg.myrc.in)** | Settings → WhatsApp: tick Enable, provider "msg.myrc.in gateway", paste your gateway API key, save. Then on the WhatsApp page press **Device status** (or **Connect / show QR** to link the phone). The server calls the gateway directly (`POST /send-message`, `/device/status`, `/device/connect`, `/messages/pending`, `/messages/logs`), so the separate PHP file is not needed. Meta's WhatsApp Cloud API is also supported as an alternative |
 | **Claude AI** | Anthropic API key (or set `ANTHROPIC_API_KEY` on the server). The default model is `claude-opus-5-5` |
 | **Store / GST** | Legal name, GSTIN, state code, support number and public URL |
 
@@ -133,16 +164,19 @@ drovox/
     db.js               SQLite schema, settings with defaults
     auth.js             scrypt passwords, signed tokens, roles and permissions, audit log
     pricing.js          bulk tiers, coupons, points, GST (CGST/SGST/IGST) quotation
-    seed.js             demo catalogue, staff, customers, 45 days of orders and events
+    catalog.js          categories, Drovox SKU generator
+    seed.js             OPTIONAL demo data (npm run demo) and test fixtures
     routes/store.js     storefront and customer API, Razorpay webhook
     routes/stock.js     stockist API, landed-cost import batches
     routes/admin.js     master panel API
     services/orders.js  order lifecycle automation and GST invoice numbering
     services/engine.js  trending, recommendations, forecasting, RFM segments, lead scoring
     services/ai.js      Claude project builder (+ keyword fallback)
-    services/whatsapp.js, payments.js, loyalty.js, jobs.js
-  public/               storefront (index.html), stockist.html, master.html, css/, js/
-  test/api.test.js      end-to-end API tests
+    services/whatsapp.js msg.myrc.in gateway + Meta Cloud API
+    services/greetings.js birthday & anniversary greetings
+    services/payments.js, loyalty.js, jobs.js
+  public/               storefront (index.html), stockist.html, master.html, css/, js/ (labels.js printing, scanner.js camera)
+  test/                 end-to-end API tests (demo-data flow + fresh-install flow)
 ```
 
 ## Production notes

@@ -4,7 +4,9 @@ import { all, get, run, round2, getSetting, setSetting, DEFAULT_SETTINGS } from 
 import { requireArea, requireRole, audit, hashPassword, publicUser, makeReferralCode, ROLES, PERMISSIONS } from '../auth.js';
 import { trending, inventoryForecast, customerSegments, scoreLead } from '../services/engine.js';
 import { orderDetail, transition, STATUS_LABEL } from '../services/orders.js';
-import { sendWhatsApp } from '../services/whatsapp.js';
+import { sendWhatsApp, myrcCall, whatsappConfigured } from '../services/whatsapp.js';
+import { upcoming, sendGreeting, greetingText, istToday } from '../services/greetings.js';
+import crypto from 'node:crypto';
 import { addPoints } from '../services/loyalty.js';
 import { runJob, jobsStatus } from '../services/jobs.js';
 import { STATES } from '../pricing.js';
@@ -13,6 +15,10 @@ export const admin = express.Router();
 admin.use(requireRole('admin', 'marketing', 'support'));
 
 admin.get('/permissions', (req, res) => res.json({ role: req.user.role, areas: PERMISSIONS[req.user.role] }));
+admin.get('/store-info', (_req, res) => {
+  const s = getSetting('store');
+  res.json({ name: s.name, legal_name: s.legal_name, address: s.address, gstin: s.gstin, support_phone: s.support_phone, public_url: s.public_url, sku_prefix: s.sku_prefix || 'DRV' });
+});
 
 // ---- analytics -------------------------------------------------------------------------------
 const PAID = `status NOT IN ('cancelled','pending_payment','returned')`;
@@ -119,6 +125,51 @@ admin.get('/customers/:id', requireArea('customers'), (req, res) => {
     cart: JSON.parse(get('SELECT items FROM carts WHERE user_id = ?', u.id)?.items || '[]'),
     messages: all('SELECT body, status, created_at FROM notifications WHERE to_phone LIKE ? ORDER BY id DESC LIMIT 20', `%${String(u.phone || 'none').slice(-10)}`),
   });
+});
+
+const vDate = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) ? String(d) : null);
+/** Adds a customer from the counter, phone or WhatsApp (an email is optional for these). */
+admin.post('/customers', requireArea('customers'), (req, res) => {
+  const b = req.body || {};
+  const phone = String(b.phone || '').replace(/[^\d+]/g, '');
+  if (!String(b.name || '').trim() || phone.replace(/\D/g, '').length < 10) return res.status(400).json({ error: 'Name and a 10-digit mobile number are required' });
+  const last10 = phone.replace(/\D/g, '').slice(-10);
+  const dup = get(`SELECT id, name FROM users WHERE REPLACE(REPLACE(IFNULL(phone,''),' ',''),'+','') LIKE ?`, `%${last10}`);
+  if (dup) return res.status(409).json({ error: `This number already belongs to ${dup.name}`, id: dup.id });
+  const email = String(b.email || '').trim() || `${last10}@customer.drovox.local`;
+  if (get('SELECT 1 FROM users WHERE email = ?', email)) return res.status(409).json({ error: 'That email is already registered' });
+  const r = run(`INSERT INTO users(name, email, phone, password_hash, role, referral_code, company, gstin, city, dob, anniversary, notes, source, whatsapp_opt_in)
+                 VALUES (?,?,?,?, 'customer', ?,?,?,?,?,?,?,?,?)`,
+    b.name.trim(), email, phone, hashPassword(crypto.randomBytes(18).toString('hex')), makeReferralCode(b.name), b.company || null, b.gstin ? String(b.gstin).toUpperCase() : null,
+    b.city || null, vDate(b.dob), vDate(b.anniversary), b.notes || null, ['walk_in', 'phone', 'whatsapp', 'import', 'web'].includes(b.source) ? b.source : 'walk_in', b.whatsapp_opt_in === false ? 0 : 1);
+  audit(req, 'customer.create', 'user', r.lastInsertRowid, { name: b.name, source: b.source });
+  res.json(publicUser(get('SELECT * FROM users WHERE id = ?', r.lastInsertRowid)));
+});
+/** Edits a customer's personal details (used for greetings and CRM). */
+admin.put('/customers/:id', requireArea('customers'), (req, res) => {
+  const u = get(`SELECT * FROM users WHERE id = ?`, req.params.id);
+  if (!u) return res.status(404).json({ error: 'Not found' });
+  const b = { ...u, ...req.body };
+  run(`UPDATE users SET name = ?, phone = ?, company = ?, city = ?, dob = ?, anniversary = ?, notes = ?, whatsapp_opt_in = ? WHERE id = ?`,
+    String(b.name).trim(), b.phone || null, b.company || null, b.city || null, vDate(b.dob), vDate(b.anniversary), b.notes || null, b.whatsapp_opt_in ? 1 : 0, u.id);
+  audit(req, 'customer.update', 'user', u.id, { fields: Object.keys(req.body || {}) });
+  res.json(publicUser(get('SELECT * FROM users WHERE id = ?', u.id)));
+});
+
+// ---- greetings ----------------------------------------------------------------------------------
+admin.get('/greetings', requireArea('customers'), (req, res) => {
+  const days = Math.min(366, Math.max(0, Number(req.query.days ?? 30)));
+  res.json({ today: istToday(), settings: getSetting('greetings'), rows: upcoming(days),
+    missing: get(`SELECT COUNT(*) n FROM users WHERE role = 'customer' AND active = 1 AND dob IS NULL AND anniversary IS NULL`).n,
+    preview: { birthday: greetingText('birthday', { name: 'Rahul' }), anniversary: greetingText('anniversary', { name: 'Rahul' }) } });
+});
+admin.post('/greetings/send', requireArea('customers'), async (req, res) => {
+  const u = get('SELECT id, name, phone FROM users WHERE id = ?', req.body?.user_id);
+  const kind = req.body?.kind === 'anniversary' ? 'anniversary' : 'birthday';
+  if (!u?.phone) return res.status(400).json({ error: 'This customer has no mobile number' });
+  const r = await sendGreeting(u, kind, Number(req.body?.year) || istToday().y);
+  audit(req, 'greeting.send', 'user', u.id, { kind, ok: r.ok });
+  res.json(r);
 });
 
 // ---- orders ------------------------------------------------------------------------------------
@@ -272,8 +323,17 @@ admin.get('/gst', requireRole('admin'), (req, res) => {
 admin.get('/notifications', requireArea('whatsapp'), (_req, res) => res.json({
   rows: all('SELECT * FROM notifications ORDER BY id DESC LIMIT 200'),
   counts: all('SELECT status, COUNT(*) n FROM notifications GROUP BY status'),
-  configured: (() => { const w = getSetting('whatsapp'); return !!(w.enabled && w.phone_number_id && w.access_token); })(),
+  configured: whatsappConfigured(), provider: getSetting('whatsapp').provider,
 }));
+/** msg.myrc.in gateway: device status / connect (QR to link the phone) / pending queue / logs. */
+const GATEWAY = { status: ['GET', '/device/status'], connect: ['GET', '/device/connect'], pending: ['GET', '/messages/pending'], logs: ['GET', '/messages/logs'] };
+admin.get('/whatsapp/gateway/:action', requireArea('whatsapp'), async (req, res) => {
+  const g = GATEWAY[req.params.action];
+  if (!g) return res.status(404).json({ error: 'Unknown action' });
+  const r = await myrcCall(...g);
+  if (req.params.action === 'connect') audit(req, 'whatsapp.connect', 'whatsapp', null, { ok: r.ok });
+  res.json(r);
+});
 admin.post('/whatsapp/test', requireArea('whatsapp'), async (req, res) => {
   const out = await sendWhatsApp(req.body?.to, req.body?.message || `Test message from ${getSetting('store').name} ✅`);
   audit(req, 'whatsapp.test', 'notification', null, { to: req.body?.to, ok: out.ok });
@@ -281,7 +341,7 @@ admin.post('/whatsapp/test', requireArea('whatsapp'), async (req, res) => {
 });
 
 // ---- settings & automation ---------------------------------------------------------------------
-const SECRET_KEYS = ['razorpay_key_secret', 'razorpay_webhook_secret', 'access_token', 'anthropic_api_key', 'shiprocket_password'];
+const SECRET_KEYS = ['razorpay_key_secret', 'razorpay_webhook_secret', 'access_token', 'anthropic_api_key', 'shiprocket_password', 'myrc_api_key'];
 const mask = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, SECRET_KEYS.includes(k) && v ? '••••' + String(v).slice(-4) : v]));
 admin.get('/settings', requireRole('admin'), (_req, res) => res.json(Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map((k) => [k, mask(getSetting(k))]))));
 admin.put('/settings/:key', requireRole('admin'), (req, res) => {
@@ -299,6 +359,6 @@ admin.put('/settings/:key', requireRole('admin'), (req, res) => {
   res.json(mask(next));
 });
 admin.get('/automation', requireRole('admin'), (_req, res) => res.json(jobsStatus()));
-admin.post('/automation/:job', requireRole('admin'), (req, res) => {
-  try { const r = runJob(req.params.job); audit(req, 'automation.run', 'job', req.params.job, r); res.json(r); } catch (e) { res.status(400).json({ error: e.message }); }
+admin.post('/automation/:job', requireRole('admin'), async (req, res) => {
+  try { const r = await runJob(req.params.job); audit(req, 'automation.run', 'job', req.params.job, r); res.json(r); } catch (e) { res.status(400).json({ error: e.message }); }
 });

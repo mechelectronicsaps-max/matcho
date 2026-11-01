@@ -6,7 +6,6 @@ import { attachUser } from './auth.js';
 import { store, razorpayWebhook } from './routes/store.js';
 import { stock } from './routes/stock.js';
 import { admin } from './routes/admin.js';
-import { seed } from './seed.js';
 import { startScheduler } from './services/jobs.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -29,6 +28,9 @@ export function createApp() {
   app.use('/api', store);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
+  // Label printing and scanning libraries, served locally so they work offline.
+  const vendor = { 'jsbarcode.js': 'jsbarcode/dist/JsBarcode.all.min.js', 'qrcode.js': 'qrcode-generator/dist/qrcode.js', 'html5-qrcode.js': 'html5-qrcode/html5-qrcode.min.js' };
+  for (const [name, file] of Object.entries(vendor)) app.get(`/vendor/${name}`, (_req, res) => res.sendFile(path.join(here, '..', 'node_modules', file)));
   app.use(express.static(PUBLIC, { extensions: ['html'], maxAge: '1h' }));
   app.get('/stockist', (_req, res) => res.sendFile(path.join(PUBLIC, 'stockist.html')));
   app.get('/master', (_req, res) => res.sendFile(path.join(PUBLIC, 'master.html')));
@@ -44,20 +46,20 @@ export function createApp() {
   return app;
 }
 
-/** Seeds on first run, starts background jobs and listens. Used by `npm start` and by app.js (cPanel / Passenger). */
+/** Starts background jobs and listens. Used by `npm start` and by app.js (cPanel / Passenger). The database starts empty. */
 export function start() {
   const [maj, min] = process.versions.node.split('.').map(Number);
   if (maj < 22 || (maj === 22 && min < 13)) {
     console.error(`Drovox needs Node.js 22.13 or newer (this is ${process.versions.node}). Pick a newer version in your hosting's Node.js app settings.`);
     process.exit(1);
   }
-  seed();
   // On shared hosting the app sleeps when idle, so jobs run from cron instead (server/run-jobs.js).
   if (process.env.DROVOX_CRON_JOBS !== '1') startScheduler();
   const port = process.env.PORT || 3000; // Passenger passes its own PORT value
   return createApp().listen(port, () => {
     console.log(`Drovox running on port ${port}`);
     console.log('  Storefront /   ·   Stockist panel /stockist   ·   Master panel /master');
+    console.log('  First run? Open /master to create the owner (admin) account.');
   });
 }
 

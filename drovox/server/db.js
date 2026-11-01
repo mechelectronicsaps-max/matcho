@@ -261,6 +261,24 @@ CREATE TABLE IF NOT EXISTS stock_alerts (
   notified_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS custom_jobs (                  -- custom / made-to-order work (kits, assemblies, PCBs…)
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_no TEXT NOT NULL UNIQUE,
+  customer_name TEXT NOT NULL, phone TEXT, user_id INTEGER REFERENCES users(id),
+  title TEXT NOT NULL, details TEXT, qty INTEGER NOT NULL DEFAULT 1,
+  price REAL NOT NULL DEFAULT 0, advance REAL NOT NULL DEFAULT 0,
+  due_date TEXT, status TEXT NOT NULL DEFAULT 'pending',   -- pending | in_progress | ready | delivered | cancelled
+  notes TEXT, created_by INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  ready_at TEXT, delivered_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS greetings_log (                -- one greeting per person, occasion and year
+  user_id INTEGER NOT NULL, kind TEXT NOT NULL, year INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, kind, year)
+);
+
 CREATE TABLE IF NOT EXISTS ai_sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER, idea TEXT NOT NULL, result TEXT NOT NULL, engine TEXT NOT NULL,
@@ -268,6 +286,20 @@ CREATE TABLE IF NOT EXISTS ai_sessions (
 );
 `;
 db.exec(SCHEMA);
+
+// Columns added after the first release: add them to existing databases.
+function ensureColumn(table, col, def) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+}
+ensureColumn('categories', 'code', 'TEXT');
+ensureColumn('products', 'barcode', 'TEXT');
+ensureColumn('users', 'dob', 'TEXT');            // YYYY-MM-DD, for birthday greetings
+ensureColumn('users', 'anniversary', 'TEXT');    // YYYY-MM-DD
+ensureColumn('users', 'city', 'TEXT');
+ensureColumn('users', 'notes', 'TEXT');
+ensureColumn('users', 'source', "TEXT NOT NULL DEFAULT 'web'");  // web | walk_in | phone | whatsapp | import
+db.exec('CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)');
 
 // ---- small helpers -------------------------------------------------------
 export const all = (sql, ...p) => db.prepare(sql).all(...p);
@@ -290,9 +322,9 @@ export function tx(fn) {
 export const DEFAULT_SETTINGS = {
   store: {
     name: 'Drovox', tagline: 'Components for makers, engineers & builders',
-    legal_name: 'Drovox Technologies Pvt Ltd', gstin: '27AAAAA0000A1Z5', state_code: '27',
-    address: 'Pune, Maharashtra, India', support_phone: '+91 90000 00000', support_email: 'support@drovox.in',
-    currency: 'INR', public_url: 'http://localhost:3000',
+    legal_name: 'Drovox', gstin: '', state_code: '27',
+    address: '', support_phone: '', support_email: '',
+    currency: 'INR', public_url: 'http://localhost:3000', sku_prefix: 'DRV',
   },
   shipping: { flat_fee: 59, free_above: 499, cod_fee: 40, cod_max_order: 5000 },
   loyalty: {
@@ -306,12 +338,23 @@ export const DEFAULT_SETTINGS = {
     tiers: [ { name: 'Maker', min_spend: 0, multiplier: 1 }, { name: 'Builder', min_spend: 10000, multiplier: 1.25 }, { name: 'Engineer', min_spend: 50000, multiplier: 1.5 } ],
   },
   engagement: {
-    welcome_coupon: 'WELCOME10', exit_intent: true, social_proof: true,
-    abandoned_cart_hours: 4, abandoned_cart_coupon: 'COMEBACK5', unpaid_cancel_minutes: 30,
+    welcome_coupon: '', exit_intent: true, social_proof: true,
+    abandoned_cart_hours: 4, abandoned_cart_coupon: '', unpaid_cancel_minutes: 30,
   },
   payments: { razorpay_key_id: '', razorpay_key_secret: '', razorpay_webhook_secret: '', cod_enabled: true, test_mode: true },
-  whatsapp: { enabled: false, phone_number_id: '', access_token: '', api_version: 'v21.0', use_templates: false,
-    templates: { order_confirmed: 'order_confirmed', order_shipped: 'order_shipped', order_delivered: 'order_delivered' } },
+  whatsapp: {
+    enabled: false,
+    provider: 'myrc',                              // myrc = msg.myrc.in gateway · meta = WhatsApp Cloud API
+    myrc_base_url: 'https://msg.myrc.in/api', myrc_api_key: '',
+    phone_number_id: '', access_token: '', api_version: 'v21.0', use_templates: false,
+    templates: { order_confirmed: 'order_confirmed', order_shipped: 'order_shipped', order_delivered: 'order_delivered' },
+  },
+  greetings: {
+    enabled: true, send_hour: 9,                   // IST hour after which the day's greetings go out
+    birthday: 'Happy Birthday {name}! 🎂 Wishing you a fantastic year of building and creating. Team {store}',
+    anniversary: 'Happy Anniversary {name}! 💐 Warm wishes from all of us at {store}.',
+    coupon: '', coupon_line: ' Here is a small gift: use code {coupon} on your next order.',
+  },
   courier: { provider: 'manual', shiprocket_email: '', shiprocket_password: '', tracking_url: 'https://www.shiprocket.in/shipment-tracking/?awb={awb}' },
   ai: { enabled: true, anthropic_api_key: '', model: 'claude-opus-5-5' },
   inventory: { safety_days: 7, target_cover_days: 45, low_stock_default: 10 },

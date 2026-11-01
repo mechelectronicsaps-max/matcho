@@ -8,7 +8,7 @@ const last = getSetting('job_last_run') || {};
 for (const [name, j] of Object.entries(JOBS)) {
   const prev = last[name] ? Date.parse(last[name]) : 0;
   if (Date.now() - prev < j.every_min * 60e3 - 60e3) continue;
-  const r = runJob(name);
+  const r = await runJob(name);
   last[name] = r.last_run;
   console.log(new Date().toISOString(), name, r.ok ? 'ok' : 'FAILED', r.result);
 }

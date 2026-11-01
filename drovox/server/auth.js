@@ -57,6 +57,7 @@ export const publicUser = (u) => u && ({
   id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, company: u.company, gstin: u.gstin,
   state_code: u.state_code, referral_code: u.referral_code, points: u.points, whatsapp_opt_in: !!u.whatsapp_opt_in,
   checkin_streak: u.checkin_streak, last_checkin: u.last_checkin, created_at: u.created_at,
+  dob: u.dob, anniversary: u.anniversary, city: u.city, source: u.source,
 });
 
 /** Express middleware: attaches req.user when a valid bearer token is present. */

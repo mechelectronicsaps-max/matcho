@@ -1,5 +1,6 @@
 // Order detail / fulfilment modal shared by the stockist and master panels.
 import { $, $$, api, esc, money, toast, modal, badge, dt, art, formData, printInvoice } from './common.js';
+import { printBoxLabels } from './labels.js';
 
 const NEXT_LABEL = { confirmed: '✓ Confirm', packed: '📦 Mark packed', shipped: '🚚 Ship', out_for_delivery: '🛵 Out for delivery', delivered: '✅ Delivered', cancelled: '✕ Cancel', returned: '↩ Return' };
 
@@ -18,7 +19,7 @@ export async function openOrder(base, id, onChange) {
     <div id="ship-form" class="hidden card flat" style="margin-top:12px"><form class="form two"><label class="f">Courier<select name="courier">${['Delhivery', 'Blue Dart', 'DTDC', 'Ekart', 'XpressBees', 'India Post', 'Shiprocket'].map((c) => `<option>${c}</option>`).join('')}</select></label>
       <label class="f">AWB / tracking no. (auto if blank)<input name="awb"></label><button class="btn primary full">Confirm shipment & notify customer</button></form></div>
     <div class="row" style="margin-top:14px">${o.next.map((s) => `<button class="btn ${s === 'cancelled' || s === 'returned' ? 'danger' : 'primary'}" data-to="${s}">${NEXT_LABEL[s]}</button>`).join('')}
-      ${o.invoice_no ? '<button class="btn" id="inv">🧾 Invoice</button>' : ''}<button class="btn" id="slip">🏷️ Packing slip</button></div>
+      ${o.invoice_no ? '<button class="btn" id="inv">🧾 Invoice</button>' : ''}<button class="btn" id="slip">📋 Packing slip</button><button class="btn" id="box">🏷️ Box label</button></div>
     <h3 style="margin-top:18px">Timeline</h3><ul class="timeline">${o.events.map((e) => `<li><b>${esc(e.note || e.status)}</b><div class="small muted">${dt(e.created_at)}</div></li>`).join('')}</ul>`, { wide: true });
 
   const move = async (to, extra = {}) => {
@@ -32,6 +33,7 @@ export async function openOrder(base, id, onChange) {
     printInvoice(await api(`/orders/${o.order_no}/invoice`));
   });
   $('#slip', m.el).onclick = () => packingSlip(o);
+  $('#box', m.el).onclick = async () => printBoxLabels([o], await api(`${base}/store-info`));
 }
 
 function packingSlip(o) {
