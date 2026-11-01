@@ -76,9 +76,50 @@ export function modal(html, { wide = false, onClose } = {}) {
 }
 
 /** Product artwork: category emoji on a tinted tile (works without product photos). */
+/** Product photo URL: size s (360 px), m (900 px) or l (1600 px). */
+export const imgUrl = (key, size = 'm') => { const [b, e] = String(key).split('.'); return `/img/p/${b}-${size}.${e}`; };
+export function firstImg(p) {
+  if (p?.img) return p.img;
+  let a = p?.images; if (typeof a === 'string') { try { a = JSON.parse(a); } catch { a = []; } }
+  return Array.isArray(a) && a[0] ? a[0] : null;
+}
+/** Product picture: the first photo (lazy-loaded, right size for the slot) or the emoji tile. */
 export function art(p, size = '') {
+  const k = firstImg(p);
+  if (k) {
+    const alt = esc(p.name || '');
+    const img = size === 'xs' || size === 'sm'
+      ? `<img src="${imgUrl(k, 's')}" alt="${alt}" loading="lazy" decoding="async" width="360" height="360">`
+      : size === 'lg'
+        ? `<img src="${imgUrl(k, 'm')}" srcset="${imgUrl(k, 'm')} 900w, ${imgUrl(k, 'l')} 1600w" sizes="(max-width: 800px) 100vw, 560px" alt="${alt}" decoding="async" fetchpriority="high" width="900" height="900">`
+        : `<img src="${imgUrl(k, 's')}" srcset="${imgUrl(k, 's')} 360w, ${imgUrl(k, 'm')} 900w" sizes="(max-width: 600px) 48vw, 240px" alt="${alt}" loading="lazy" decoding="async" width="360" height="360">`;
+    return `<div class="art photo ${size}">${img}</div>`;
+  }
   const hue = ((p.category_id || 1) * 47) % 360;
   return `<div class="art ${size}" style="--h:${hue}"><span>${esc(p.image || '📦')}</span></div>`;
+}
+
+/** Resize a photo in the browser to the three sizes the server stores (WebP, or JPEG where WebP can't be encoded). */
+export async function photoVariants(file) {
+  if (!/^image\//.test(file.type)) throw new Error(`${file.name} is not an image`);
+  if (file.size > 25 * 1024 * 1024) throw new Error(`${file.name} is larger than 25 MB`);
+  let src;
+  try { src = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch {
+    src = await new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => fail(new Error(`${file.name} could not be opened`)); i.src = URL.createObjectURL(file); });
+  }
+  const W = src.width; const H = src.height;
+  const probe = document.createElement('canvas'); probe.width = probe.height = 2;
+  const type = probe.toDataURL('image/webp').startsWith('data:image/webp') ? 'image/webp' : 'image/jpeg';
+  const out = {};
+  for (const [size, max, q] of [['s', 360, 0.78], ['m', 900, 0.82], ['l', 1600, 0.85]]) {
+    const k = Math.min(1, max / Math.max(W, H)); const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(W * k)); c.height = Math.max(1, Math.round(H * k));
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    g.imageSmoothingQuality = 'high'; g.drawImage(src, 0, 0, c.width, c.height);
+    out[size] = c.toDataURL(type, q);
+  }
+  src.close?.();
+  return out;
 }
 
 export function formData(form) {

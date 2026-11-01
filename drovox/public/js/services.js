@@ -2,6 +2,8 @@
 import { $, $$, api, esc, money, toast, formData, badge } from './common.js';
 import { tintSvg, svgUrl, mountPcb3d } from './pcb3d.js';
 import { pageModelService } from './print3d-ui.js';
+import { pageLaserService } from './laser-ui.js';
+import { pageBatteryService } from './battery-ui.js';
 
 const STATUS_LABEL = { new: 'Received', quoted: 'Quote sent', approved: 'Approved', in_production: 'In production', ready: 'Ready', delivered: 'Delivered', cancelled: 'Cancelled' };
 const STATUS_COLOR = { new: 'pending_payment', quoted: 'confirmed', approved: 'packed', in_production: 'shipped', ready: 'delivered', delivered: 'delivered', cancelled: 'cancelled' };
@@ -117,6 +119,8 @@ export async function pageServices(app, S, parts, setTitle) {
   const svc = cat.services.find((s) => s.id === id);
   setTitle(svc.title);
   if (svc.model) return pageModelService(app, S, svc, cat, id);   // 3D printing: upload model → 3D view → auto price
+  if (svc.dxf) return pageLaserService(app, S, svc, cat, id);     // laser cutting: DXF → preview, cut length, pierces → price
+  if (svc.battery) return pageBatteryService(app, S, svc, cat);   // battery pack builder
   const fields = F[id];
   app.innerHTML = `<div class="small muted" style="margin-bottom:12px"><a href="#/services">Services</a> / ${esc(svc.title)}</div>
     <div class="cart-layout"><form id="sf" class="stack">

@@ -99,3 +99,73 @@ test('sell-on-Drovox partner type is offered', async () => {
   const p = (await api('GET', '/api/partner/program')).data;
   assert.ok(p.types.some((t) => t.id === 'seller'));
 });
+
+test('product photos: upload 3 sizes, reorder, delete, shown in listings; AI fill needs a key', async () => {
+  const st = await login('stockist@drovox.in', 'stock123');
+  const p = get(`SELECT id, slug FROM products WHERE sku = 'DRV-ARD-UNO'`);
+  const JPG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP////////////////////////////////////////////////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/AABEIAAEAAQMBIgACEQEDEQH/xAAUAAEAAAAAAAAAAAAAAAAAAAAA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEAMQAAABn//Z';
+  const v = { s: JPG, m: JPG, l: JPG };
+  const a = (await api('POST', `/api/stock/products/${p.id}/images`, { variants: v }, st)).data;
+  const b = (await api('POST', `/api/stock/products/${p.id}/images`, { variants: v }, st)).data;
+  assert.equal(b.images.length, 2); assert.match(a.images[0], /^[a-f0-9]{16}\.jpg$/);
+  assert.equal((await api('POST', `/api/stock/products/${p.id}/images`, { variants: { s: PNG, m: PNG, l: PNG } }, st)).status, 400, 'PNG must be converted in the browser');
+  const img = await fetch(`${base}/img/p/${a.images[0].replace('.jpg', '')}-s.jpg`);
+  assert.equal(img.status, 200); assert.match(img.headers.get('cache-control'), /immutable/);
+  const re = (await api('PUT', `/api/stock/products/${p.id}/images`, { images: [...b.images].reverse() }, st)).data;
+  assert.equal(re.images[0], b.images[1]);
+  const pd = (await api('GET', `/api/products/${p.slug}`)).data;
+  assert.deepEqual(pd.images, re.images); assert.equal(pd.img, re.images[0]);
+  const del = (await api('DELETE', `/api/stock/products/${p.id}/images/${re.images[0]}`, null, st)).data;
+  assert.equal(del.images.length, 1);
+  assert.equal((await fetch(`${base}/img/p/${re.images[0].replace('.jpg', '')}-s.jpg`)).status, 404);
+  for (let i = 0; i < 4; i++) await api('POST', `/api/stock/products/${p.id}/images`, { variants: v }, st);
+  assert.equal((await api('POST', `/api/stock/products/${p.id}/images`, { variants: v }, st)).status, 400, 'max 5 photos');
+  // listing info fields
+  const up = (await api('PUT', `/api/stock/products/${p.id}`, { short_description: 'Classic ATmega328P board.', highlights: 'USB-B\n14 digital I/O', in_box: ['1 × Uno board'] }, st)).data;
+  assert.deepEqual(JSON.parse(up.highlights), ['USB-B', '14 digital I/O']);
+  const pd2 = (await api('GET', `/api/products/${p.slug}`)).data;
+  assert.equal(pd2.short_description, 'Classic ATmega328P board.'); assert.deepEqual(pd2.in_box, ['1 × Uno board']);
+  const ai = await api('POST', '/api/stock/products/ai-fill', { name: 'HC-SR04' }, st);
+  assert.equal(ai.status, 400); assert.match(ai.data.error, /API key/);
+});
+
+test('responses are compressed and public config is micro-cached', async () => {
+  const r = await fetch(`${base}/api/categories`, { headers: { 'Accept-Encoding': 'gzip' } });
+  await r.arrayBuffer();
+  const r2 = await fetch(`${base}/api/categories`, { headers: { 'Accept-Encoding': 'gzip' } });
+  assert.equal(r2.headers.get('x-cache'), 'HIT');
+  const big = await fetch(`${base}/api/home`, { headers: { 'Accept-Encoding': 'gzip' } });
+  assert.equal(big.headers.get('content-encoding'), 'gzip');
+});
+
+test('laser cutting: DXF measured (size, cut length, pierces), required to order, preview kept for staff', async () => {
+  const { plateDxf } = await import('./fixtures/make-dxf.mjs');
+  const data = Buffer.from(plateDxf()).toString('base64');
+  const d = (await api('POST', '/api/services/dxf', { data, unit: 'mm' })).data;
+  assert.equal(d.width_mm, 100); assert.equal(d.height_mm, 50); assert.equal(d.cut_length_m, 0.4); assert.equal(d.pierces, 3); assert.match(d.svg, /^<svg/);
+  const inch = (await api('POST', '/api/services/dxf', { data, unit: 'inch' })).data;
+  assert.equal(inch.width_mm, 2540);
+  assert.equal((await api('POST', '/api/services/dxf', { data: Buffer.from('hello').toString('base64') })).status, 400);
+  const tok = await login('demo@drovox.in', 'demo123');
+  assert.equal((await api('POST', '/api/services/requests', { service: 'metal_laser', material: 'ss', thickness: 2, name: 'Demo', phone: '9876543210' }, tok)).status, 400, 'DXF required');
+  const r = await api('POST', '/api/services/requests', { service: 'metal_laser', material: 'ss', thickness: 2, width_mm: 1, height_mm: 1, bends: 1, finish: 'powder', quantity: 2, name: 'Demo', phone: '9876543210', files: [{ name: 'plate.dxf', data }] }, tok);
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(r.data.estimate.specs.width_mm, 100, 'size comes from the DXF, not the browser');
+  assert.equal(r.data.estimate.specs.pierces, 3);
+  assert.ok(r.data.estimate.lines.some((l) => l.label.startsWith('Pierces 3')));
+  assert.ok(r.data.estimate.lines.some((l) => l.label.startsWith('Powder coating')));
+  const st = await login('stockist@drovox.in', 'stock123');
+  const svg = await fetch(`${base}/api/stock/services/${r.data.id}/dxf`, { headers: { Authorization: `Bearer ${st}` } });
+  assert.equal(svg.status, 200); assert.match(svg.headers.get('content-type'), /svg/);
+  const cat = (await api('GET', '/api/services')).data;
+  assert.equal(cat.sheets.metal.length, 5); assert.ok(cat.battery.cells.length >= 5);
+});
+
+test('battery builder: specs, current limit warning, casing / charger / extras priced', async () => {
+  const e = (await api('POST', '/api/services/estimate', { service: 'battery', mode: 'build', cell: '18650', series: 10, parallel: 2, bms_a: 30, casing: 'abs', charger: true, ntc: true, wire_cm: 30 })).data;
+  assert.equal(e.info.nominal_v, 36); assert.equal(e.info.max_v, 42); assert.equal(e.info.capacity_ah, 5.2);
+  assert.equal(e.info.max_current_a, 10); assert.match(e.info.warn, /high-drain/);
+  for (const l of ['ABS plastic box', 'Output wire 30 cm', 'NTC temperature sensor', '42 V matching charger']) assert.ok(e.lines.some((x) => x.label.startsWith(l)), l);
+  const lfp = (await api('POST', '/api/services/estimate', { service: 'battery', cell: 'lfp', series: 4, parallel: 3 })).data;
+  assert.equal(lfp.info.nominal_v, 12.8); assert.equal(lfp.info.capacity_ah, 18);
+});

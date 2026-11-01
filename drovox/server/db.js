@@ -355,7 +355,13 @@ ensureColumn('users', 'source', "TEXT NOT NULL DEFAULT 'web'");  // web | walk_i
 ensureColumn('users', 'partner_type', 'TEXT');                     // set when a partner application is approved
 ensureColumn('users', 'partner_discount', 'REAL NOT NULL DEFAULT 0');
 ensureColumn('orders', 'partner_discount', 'REAL NOT NULL DEFAULT 0');
+ensureColumn('products', 'images', "TEXT NOT NULL DEFAULT '[]'");        // JSON [image key] — first is the main photo
+ensureColumn('products', 'short_description', 'TEXT');                   // one-paragraph summary under the title
+ensureColumn('products', 'highlights', "TEXT NOT NULL DEFAULT '[]'");    // JSON [bullet]
+ensureColumn('products', 'in_box', "TEXT NOT NULL DEFAULT '[]'");        // JSON [item] — package includes
 db.exec('CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_products_active ON products(active, category_id)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_order_items_product ON order_items(product_id)');
 
 // ---- small helpers -------------------------------------------------------
 export const all = (sql, ...p) => db.prepare(sql).all(...p);
@@ -442,9 +448,11 @@ export const DEFAULT_SETTINGS = {
     // Battery packs: cell prices (BIS-registered cells bought in India), BMS and assembly
     cell_18650: 140, cell_21700: 260, cell_lfp_32700: 420, bms_base: 120, bms_per_s: 35, bms_per_10a: 60,
     assembly_per_cell: 15, pack_base: 150, battery_test_fee: 199,
+    cell_18650_hd: 220, cell_21700_hc: 330, casing_abs_base: 250, casing_abs_per_cell: 8, casing_metal_base: 600, casing_metal_per_cell: 15, wire_per_10cm: 12, ntc_sensor: 60, charger_base: 450, charger_per_s: 30,
     // Industrial 3D printing, per cm³ of part volume
     sla_standard_per_cm3: 18, sla_tough_per_cm3: 26, sla_clear_per_cm3: 28, sls_nylon_per_cm3: 22, mjf_nylon_per_cm3: 24, industrial_setup: 300, industrial_min: 499,
     sla_black_per_cm3: 20, sla_hightemp_per_cm3: 40, mjf_pa11_per_cm3: 30, sls_pa12gf_per_cm3: 30, wjp_rigid_per_cm3: 45, wjp_colour_per_cm3: 60,
+    metal_pierce: 2, laser_pierce: 0.5,
     slm_ss316l_per_cm3: 250, slm_alsi10mg_per_cm3: 220, slm_ti64_per_cm3: 600, bj_ss316l_per_cm3: 120, industrial_metal_setup: 1500,
     // Metal laser cutting: material per cm²·mm, cutting per metre per mm of thickness
     ms_cm2_mm: 0.012, ss_cm2_mm: 0.045, al_cm2_mm: 0.03, brass_cm2_mm: 0.09, gi_cm2_mm: 0.015,

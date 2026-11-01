@@ -1,5 +1,5 @@
 // Drovox storefront (hash-routed single-page app).
-import { $, $$, api, esc, money, num, toast, modal, art, local, getToken, setToken, formData, badge, dt, printInvoice } from './common.js';
+import { $, $$, api, esc, money, num, toast, modal, art, local, getToken, setToken, formData, badge, dt, printInvoice, imgUrl } from './common.js';
 import { pageServices, pagePartner, accountServices } from './services.js';
 
 const S = { cfg: null, user: null, cats: [], quoteCache: null, site: { site: {}, banners: [], reviews: [] } };
@@ -82,7 +82,7 @@ function renderHeader() {
   $('#nav-account').href = S.user ? '#/account' : '#/login';
   const path = location.hash.split('?')[0];
   $('#allcats-menu').innerHTML = `<a href="#/search"><span>All products</span><span>›</span></a>` + S.cats.map((c) => `<a href="#/c/${c.slug}"><span>${c.icon} ${esc(c.name)}</span><span class="tiny muted">${c.count || ''}</span></a>`).join('') + '<a href="#/services"><span>🛠️ Services</span><span>›</span></a>';
-  $$('#mainlinks a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === (location.hash || '#/') || (a.getAttribute('href').length > 2 && path.startsWith(a.getAttribute('href').split('?')[0]) && a.getAttribute('href') !== '#/search')));
+  $$('#mainlinks a').forEach((a) => { const h = a.getAttribute('href'); a.classList.toggle('on', h === (location.hash || '#/') || (h.length > 2 && !h.includes('?') && h !== '#/search' && path.startsWith(h))); });
   renderCounts();
   $('#catbar').innerHTML = `<a href="#/search" class="${path === '#/search' ? 'on' : ''}">All products</a>` + S.cats.filter((c) => c.count).map((c) => `<a href="#/c/${c.slug}" class="${path === '#/c/' + c.slug ? 'on' : ''}">${c.icon} ${esc(c.name)}</a>`).join('') + '<a href="#/builder">✨ AI Project Builder</a><a href="#/services">🛠️ 3D Print · PCB · Laser · Battery</a><a href="#/partner">🤝 Become a Partner</a>';
 }
@@ -192,6 +192,43 @@ async function pageListing(params, catSlug) {
   $('#instock').onchange = (e) => { location.hash = set('in_stock', e.target.checked ? '1' : ''); };
 }
 
+/** Photo gallery: thumbnails, hover zoom (desktop), full-screen viewer with arrows / swipe. */
+function gallery(p) {
+  const n = p.images.length;
+  return `<div class="gal"><div class="gal-thumbs">${n > 1 ? p.images.map((k, i) => `<button type="button" data-gi="${i}" class="${i ? '' : 'on'}" aria-label="Photo ${i + 1}"><img src="${imgUrl(k, 's')}" alt="" loading="lazy" decoding="async" width="72" height="72"></button>`).join('') : ''}</div>
+    <div class="gal-main" id="gmain" role="button" tabindex="0" aria-label="Open photo viewer">${art(p, 'lg').replace(/^<div class="art photo lg">|<\/div>$/g, '')}<div class="zoom"></div>${n > 1 ? `<span class="gal-count" id="gcount">1 / ${n}</span>` : ''}</div></div>`;
+}
+function wireGallery(p) {
+  if (!p.images.length) return;
+  let cur = 0; const main = $('#gmain'); const img = $('img', main); const zoom = $('.zoom', main);
+  p.images.forEach((k) => { const i = new Image(); i.src = imgUrl(k, 'm'); });   // preload the other photos
+  const show = (i) => {
+    cur = (i + p.images.length) % p.images.length; const k = p.images[cur];
+    img.src = imgUrl(k, 'm'); img.srcset = `${imgUrl(k, 'm')} 900w, ${imgUrl(k, 'l')} 1600w`;
+    zoom.classList.remove('ready'); zoom.style.backgroundImage = '';
+    $$('[data-gi]').forEach((b) => b.classList.toggle('on', Number(b.dataset.gi) === cur));
+    if ($('#gcount')) $('#gcount').textContent = `${cur + 1} / ${p.images.length}`;
+  };
+  $$('[data-gi]').forEach((b) => { b.onclick = () => show(Number(b.dataset.gi)); b.onmouseenter = () => show(Number(b.dataset.gi)); });
+  main.addEventListener('mousemove', (e) => {
+    if (!zoom.style.backgroundImage) { const big = new Image(); big.onload = () => zoom.classList.add('ready'); big.src = imgUrl(p.images[cur], 'l'); zoom.style.backgroundImage = `url('${big.src}')`; }
+    const r = main.getBoundingClientRect(); zoom.style.backgroundPosition = `${((e.clientX - r.left) / r.width) * 100}% ${((e.clientY - r.top) / r.height) * 100}%`;
+  });
+  let sx = null; main.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; }, { passive: true });
+  main.addEventListener('touchend', (e) => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; if (Math.abs(dx) > 40) show(cur + (dx < 0 ? 1 : -1)); sx = null; });
+  const open = () => {
+    const lb = document.createElement('div'); lb.className = 'lightbox';
+    lb.innerHTML = `<img alt="${esc(p.name)}"><button class="lb-x" aria-label="Close">✕</button>${p.images.length > 1 ? '<button class="lb-p" aria-label="Previous">‹</button><button class="lb-n" aria-label="Next">›</button>' : ''}`;
+    const set = () => { $('img', lb).src = imgUrl(p.images[cur], 'l'); };
+    const close = () => { lb.remove(); document.removeEventListener('keydown', key); };
+    const key = (e) => { if (e.key === 'Escape') close(); if (e.key === 'ArrowRight') { show(cur + 1); set(); } if (e.key === 'ArrowLeft') { show(cur - 1); set(); } };
+    lb.onclick = (e) => { if (e.target === lb || e.target.classList.contains('lb-x')) close(); };
+    $('.lb-p', lb)?.addEventListener('click', () => { show(cur - 1); set(); }); $('.lb-n', lb)?.addEventListener('click', () => { show(cur + 1); set(); });
+    document.addEventListener('keydown', key); document.body.appendChild(lb); set();
+  };
+  main.onclick = open; main.onkeydown = (e) => { if (e.key === 'Enter') open(); };
+}
+
 async function pageProduct(slug) {
   const p = await api(`/products/${encodeURIComponent(slug)}`);
   rememberProducts([p, ...p.bought_together, ...p.similar, ...(p.bundle?.items || [])]);
@@ -201,10 +238,12 @@ async function pageProduct(slug) {
   const proof = p.social ? [p.social.viewing_now > 1 ? `<span>👀 ${p.social.viewing_now} people viewing now</span>` : '', p.social.sold_24h ? `<span>🛒 ${p.social.sold_24h} sold in the last 24h</span>` : '', p.social.buyers_30d ? `<span>⭐ ${p.social.buyers_30d} buyers this month</span>` : ''].join('') : '';
   app.innerHTML = `<div class="small muted" style="margin-bottom:12px"><a href="#/">Home</a> / <a href="#/c/${p.category.slug}">${esc(p.category.name)}</a> / ${esc(p.sku)}</div>
     <div class="pdp">
-      <div>${art(p, 'lg')}</div>
+      <div>${p.images.length ? gallery(p) : art(p, 'lg')}</div>
       <div class="stack">
         <div class="row"><span class="badge">${esc(p.brand || 'Drovox')}</span><span class="badge">SKU ${esc(p.sku)}</span>${p.stock <= 0 ? '<span class="badge red">Out of stock</span>' : p.low_stock ? `<span class="badge amber">Hurry — only ${p.stock} left</span>` : '<span class="badge green">In stock · ships today</span>'}</div>
         <h1>${esc(p.name)}</h1>
+        ${p.short_description ? `<p class="pdp-short">${esc(p.short_description)}</p>` : ''}
+        ${p.highlights.length ? `<ul class="pdp-hl">${p.highlights.map((h) => `<li>${esc(h)}</li>`).join('')}</ul>` : ''}
         ${proof ? `<div class="proof">${proof}</div>` : ''}
         <div><span class="price-big" id="unit">${money(p.price)}</span> ${p.mrp > p.price ? `<span class="muted" style="text-decoration:line-through">${money(p.mrp)}</span> <span class="badge red">${p.off_pct}% off</span>` : ''}
           <div class="small muted">Inclusive of ${p.gst_rate}% GST · HSN ${esc(p.hsn)} · GST invoice provided</div></div>
@@ -214,7 +253,9 @@ async function pageProduct(slug) {
         <div class="row">${p.stock > 0 ? '<button class="btn primary lg" id="add">Add to cart</button><button class="btn dark lg" id="buy">Buy now</button>' : '<button class="btn primary lg" id="notify">🔔 Notify me when back</button>'}
           <a class="btn lg" href="#/bulk?sku=${esc(p.sku)}">Bulk quote</a><button class="btn lg ${wish.has(p.id) ? 'on' : ''}" data-wish="${p.id}" title="Wishlist">♡ Wishlist</button><button class="btn lg" data-cmp="${p.id}" title="Compare">⇄ Compare</button></div>
         <div class="small muted">⭐ Earn ~${Math.floor(p.price / 100 * S.cfg.loyalty.earn_per_100)} Drovox points · 🚚 Free shipping above ${money(S.cfg.shipping.free_above)} · 💵 COD available</div>
-        <hr class="sep"><p>${esc(p.description)}</p>
+        <hr class="sep"><div class="pdp-tabs">${p.description ? `<h3>Description</h3>${p.description.split(/\n{2,}/).map((x) => `<p>${esc(x)}</p>`).join('')}` : ''}
+        ${p.in_box.length ? `<h3>What's in the box</h3><ul class="pdp-hl">${p.in_box.map((h) => `<li>${esc(h)}</li>`).join('')}</ul>` : ''}
+        ${Object.keys(p.specs).length ? '<h3>Specifications</h3>' : ''}</div>
         <table class="specs">${Object.entries(p.specs).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>
       </div>
     </div>
@@ -222,6 +263,7 @@ async function pageProduct(slug) {
         <div class="small">${p.bundle.items.map((x) => esc(x.name.split('(')[0])).join(' + ')}</div></div><div class="row"><b>${money(p.bundle.total)}</b><button class="btn primary" id="bundle">Add all ${p.bundle.items.length} to cart</button></div></div>`) : ''}
     ${p.bought_together.length > 2 ? section('Complete your build', '', grid(p.bought_together)) : ''}
     ${section('Similar products', '', grid(p.similar, 'hscroll'))}`;
+  wireGallery(p);
   const qtyEl = $('#qty');
   const update = () => {
     qty = Math.max(1, Math.min(999, parseInt(qtyEl.value, 10) || 1)); qtyEl.value = qty;
@@ -676,7 +718,7 @@ async function route() {
   const [path, qs] = location.hash.replace(/^#/, '').split('?');
   const params = new URLSearchParams(qs || '');
   const parts = (path || '/').split('/').filter(Boolean);
-  $$('.modal-wrap').forEach((m) => m.remove());
+  $$('.modal-wrap, .lightbox').forEach((m) => m.remove());
   renderHeader(); window.scrollTo(0, 0); $('#allcats-menu')?.classList.add('hidden');
   if (params.get('ref')) local.set('drv_ref', params.get('ref'));
   try {

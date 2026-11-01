@@ -75,9 +75,9 @@ function validate(plan, rows) {
   for (const it of plan.items || []) {
     const r = bySku.get(String(it.sku).toUpperCase());
     if (!r) { plan.missing = [...(plan.missing || []), { part: it.sku, note: 'Not in our catalogue' }]; continue; }
-    const p = get('SELECT id, sku, slug, name, price, stock, image, category_id FROM products WHERE sku = ?', r.sku);
+    const p = get('SELECT id, sku, slug, name, price, stock, image, images, category_id FROM products WHERE sku = ?', r.sku);
     const qty = Math.max(1, Math.min(Math.floor(Number(it.qty) || 1), p.stock || 1));
-    items.push({ product_id: p.id, sku: p.sku, slug: p.slug, name: p.name, price: p.price, image: p.image, category_id: p.category_id, stock: p.stock, qty, reason: it.reason });
+    items.push({ product_id: p.id, sku: p.sku, slug: p.slug, name: p.name, price: p.price, image: p.image, img: JSON.parse(p.images || '[]')[0] || null, category_id: p.category_id, stock: p.stock, qty, reason: it.reason });
   }
   return { ...plan, items, estimated_total: Math.round(items.reduce((s, i) => s + i.price * i.qty, 0)) };
 }
@@ -164,4 +164,73 @@ export async function buildProject(idea, user) {
   result.engine = engine;
   run('INSERT INTO ai_sessions(user_id, idea, result, engine) VALUES (?,?,?,?)', user?.id ?? null, idea, JSON.stringify(result), engine);
   return result;
+}
+
+// ---- ✨ product listing writer (stockist panel) ----------------------------------------------
+const LISTING_TOOL = {
+  name: 'write_listing',
+  description: 'Return the product listing content for an electronics / robotics component sold in India.',
+  strict: true,
+  input_schema: {
+    type: 'object',
+    properties: {
+      short_description: { type: 'string', description: '2–3 sentences (max 350 characters): what it is, the key spec and what it is used for' },
+      highlights: { type: 'array', items: { type: 'string' }, description: '4–6 short feature bullets (no trailing full stop)' },
+      description: { type: 'string', description: '2–3 short paragraphs separated by blank lines: overview, how to use/connect it, typical projects. Plain text, no markdown.' },
+      specs: {
+        type: 'array',
+        description: '6–12 technical specifications from the datasheet',
+        items: { type: 'object', properties: { key: { type: 'string' }, value: { type: 'string' } }, required: ['key', 'value'], additionalProperties: false },
+      },
+      in_box: { type: 'array', items: { type: 'string' }, description: 'Package contents, e.g. "1 × HC-SR04 module"' },
+      tags: { type: 'array', items: { type: 'string' }, description: '6–10 lowercase search keywords incl. common Indian spellings / part numbers' },
+      hsn: { type: 'string', description: 'Most likely Indian HSN code (4–8 digits) for this item' },
+      confidence: { type: 'string', enum: ['high', 'medium', 'low'], description: 'How sure you are that this is the exact part (low if the name is ambiguous)' },
+    },
+    required: ['short_description', 'highlights', 'description', 'specs', 'in_box', 'tags', 'hsn', 'confidence'],
+    additionalProperties: false,
+  },
+};
+
+export class AiUnavailable extends Error { constructor(m) { super(m); this.status = 400; } }
+
+/** Writes listing content for one product. Staff review it before saving. */
+export async function writeProductInfo({ name, brand, category, specs, notes }) {
+  const cfg = getSetting('ai');
+  const apiKey = cfg.anthropic_api_key || process.env.ANTHROPIC_API_KEY;
+  if (!cfg.enabled || !apiKey) throw new AiUnavailable('Add your Claude API key in Master → Settings → AI to use ✨ Fill with AI');
+  const client = new Anthropic({ apiKey });
+  const known = Object.entries(specs || {}).map(([k, v]) => `${k}: ${v}`).join('\n');
+  let response;
+  try {
+    response = await client.beta.messages.create({
+      model: cfg.model || 'claude-opus-5-5',
+      max_tokens: 4000,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
+      system: 'You write accurate, concise product listings for Drovox, an Indian online store for electronic components, robotics and maker parts (like robu.in). Use datasheet facts you are confident about; never invent certifications, brands or numbers you are unsure of — leave them out instead. Indian English, metric units, no prices, no emojis, no marketing fluff.',
+      tools: [LISTING_TOOL],
+      tool_choice: { type: 'tool', name: 'write_listing' },
+      messages: [{ role: 'user', content: `Product name: ${name}\nBrand: ${brand || 'unbranded / generic'}\nCategory: ${category || 'unknown'}\n${known ? `Known specs from our stock team:\n${known}\n` : ''}${notes ? `Notes from our stock team:\n${notes}\n` : ''}\nWrite the listing with write_listing.` }],
+    });
+  } catch (e) {
+    if (e instanceof Anthropic.AuthenticationError) throw new AiUnavailable('The Claude API key is not valid — check Master → Settings → AI');
+    if (e instanceof Anthropic.RateLimitError) throw new AiUnavailable('Claude is busy right now — try again in a minute');
+    if (e instanceof Anthropic.APIError) throw new AiUnavailable(`Claude API error (${e.status}) — try again`);
+    throw e;
+  }
+  if (response.stop_reason === 'refusal') throw new AiUnavailable('Claude could not write this listing');
+  const block = response.content.find((b) => b.type === 'tool_use' && b.name === 'write_listing');
+  if (!block) throw new AiUnavailable('No listing was returned — try again');
+  const r = block.input;
+  return {
+    short_description: String(r.short_description || '').slice(0, 600),
+    highlights: (r.highlights || []).slice(0, 8).map(String),
+    description: String(r.description || ''),
+    specs: Object.fromEntries((r.specs || []).slice(0, 20).map((s) => [String(s.key).slice(0, 60), String(s.value).slice(0, 200)])),
+    in_box: (r.in_box || []).slice(0, 15).map(String),
+    tags: (r.tags || []).slice(0, 12).map((t) => String(t).toLowerCase()).join(','),
+    hsn: /^\d{4,8}$/.test(String(r.hsn || '')) ? String(r.hsn) : '',
+    confidence: r.confidence,
+  };
 }

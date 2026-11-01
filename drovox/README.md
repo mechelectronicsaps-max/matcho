@@ -80,7 +80,7 @@ Your data lives in a single file, `drovox/data/drovox.db`. Back it up.
 
 Storefront → **Services** (`/#/services`) offers six services:
 - **Industrial 3D printing and online FDM 3D printing:** see *3D printing online ordering* below.
-- **Metal laser cutting:** MS, SS304, aluminium, brass and GI. Only the thicknesses each metal supports are offered, and bending is optional.
+- **Metal laser cutting** and **non-metal laser cutting:** see *Laser cutting online ordering* below.
 - **Customized lithium-ion battery packs.**
 - **Non-metal laser cutting:** acrylic 2–8 mm in colours, MDF, plywood, cardboard, leather and EVA foam.
 - **PCB manufacturing (robu.in / JLCPCB style):** see *PCB online ordering* below.
@@ -104,6 +104,15 @@ Each service page lists its materials and capabilities. A battery pack can be bu
 - The price shows "Upload a model to see the price" until a model is uploaded. Parts bigger than the machine's build volume are flagged. The quantity has − / + buttons.
 - The server measures the model again when the order is placed, so the price can't be changed in the browser. Staff see the model's numbers and a **3D view** in **Stockist panel → Service jobs**.
 - Material properties are typical values — edit them in `server/services/print-materials.js`; rates (₹/cm³, ₹/g) are in **Master → Settings → Services**.
+
+### Laser cutting online ordering (robu.in style)
+- Upload one **DXF** (mm or inch — pick the File unit). The server measures the overall size, total cut length, number of pierces (separate shapes) and part area, and draws a preview in the material colour. Open lines and ignored text are flagged.
+- Step 1 **Material**: metal swatches per thickness (MS, SS304, aluminium, brass, GI) or acrylic (with colours), MDF, plywood, cardboard, leather, EVA foam. Step 2 **Finalize**: bends and finish (deburring, powder coating) for metal, engraving area for non-metal, quantity, remark.
+- Price = sheet area + cutting length + pierces (+ bends / finish / engraving). It shows nothing until a DXF is uploaded; the server measures the DXF again when the order is placed. Staff see the drawing preview in the job.
+
+### Custom battery pack builder
+- Choose the cell (18650 2600 / 3000 HD, 21700 4000 / 5000, LiFePO4 32700) with its datasheet card, then the target voltage (series count) and target Ah (parallel count is worked out), then BMS, connector, wire length, casing (heat-shrink / ABS / aluminium), NTC sensor and charger.
+- A live pack drawing shows the S×P layout; voltage range, Ah, Wh, max continuous current (limited by cells or BMS), approximate size and weight update with the price. A warning appears when the cells can't supply the BMS current, and packs over 100 Wh are flagged for surface shipping. There is also a *Test / repair my pack* mode.
 
 ### PCB online ordering with built-in Gerber viewer
 - **Upload Gerber ZIP first.** The server unzips it, detects each layer, measures the board outline and renders **Top / Bottom** views right on the page. Width, height and layer count are filled in automatically, with warnings (no outline, no drill file, odd layer count).
@@ -129,6 +138,12 @@ How it works:
 2. **Approve:** in Master → **Partners**, approve or reject it and set the discount. Defaults are in Settings → Partners: reseller 10%, institution 8%, makerspace 8%, integrator 7%, affiliate 5%. The partner is told on WhatsApp.
 3. **Discount:** an approved partner's discount comes off automatically at checkout, before any coupon. It shows in the cart and on the order, and the GST invoice is calculated on the reduced price.
 4. **Manage:** discounts can be changed or revoked at any time. Every decision is recorded in the audit trail.
+
+## Product photos, AI listings and speed
+- **Photos:** Stockist panel → Products → Edit → *Photos*: add up to 5 (3–5 recommended), reorder with ◀ ▶, delete with ✕; the first is the main photo. The browser resizes each photo to 360 / 900 / 1600 px WebP before upload, so uploads are small and no image library is needed on the server. Photos are served from `/img/p/` with a one-year cache.
+- **Storefront:** cards load the small size lazily; the product page has a gallery with thumbnails, hover zoom, swipe on phones and a full-screen viewer.
+- **✨ Fill with AI:** in the product form, type the name (and brand), click *Fill with AI* — Claude writes the short description, highlights, description, specifications, what's in the box, search tags and HSN. Review, then save. Needs the Claude API key in Master → Settings → AI.
+- **Speed:** gzip compression for pages and API, a 30-second cache for the public config/categories/site/services data (cleared on any staff change), long caching for versioned JS/CSS and library files, and extra database indexes.
 
 ## Footer, app badges and policies
 The footer has Shop, Services, Help, Policies and Contact columns, social links, accepted payments and **App Store / Google Play** badges. Add the app links in **Master → Settings → Website** (`iOS app`, `Android app`); until then the badges say "Coming soon". Privacy, Terms, Shipping and Returns pages are at `#/policy/privacy|terms|shipping|returns` (payment gateways such as Razorpay ask for these). Return window and dispatch time come from the same settings tab — review the wording with your advisor before going live.

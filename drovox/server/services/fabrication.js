@@ -22,21 +22,21 @@ export const SERVICES = {
   metal_laser: {
     title: 'Metal Laser Cutting', short: 'Metal Laser Cutting', icon: '⚙️', lead: '3–6 days', order: 3,
     blurb: 'Fibre-laser cutting of mild steel, stainless steel, aluminium, brass and GI sheet — brackets, panels, chassis plates and enclosures, with optional bending.',
-    files: ['dxf', 'dwg', 'step', 'stp', 'pdf', 'zip'],
+    files: ['dxf'], dxf: true,
     materials: ['Mild steel (MS) 0.8–6 mm', 'Stainless steel SS304 0.5–4 mm', 'Aluminium 0.8–4 mm', 'Brass 0.5–2 mm', 'Galvanised iron (GI) 0.5–2 mm'],
     features: ['Tolerance about ±0.1 mm', 'Max sheet 1500 × 3000 mm', 'CNC bending available', 'Upload DXF in mm, 1:1 scale'],
   },
   battery: {
     title: 'Customized Lithium-ion Battery Pack', short: 'Custom Battery Pack', icon: '🔋', lead: '2–5 days', order: 4,
     blurb: 'Spot-welded Li-ion and LiFePO4 packs with BMS for robots, drones, e-bikes, solar and inverters — built to your voltage and capacity. We also test and repair packs.',
-    files: ['pdf', 'png', 'jpg', 'jpeg'],
+    files: ['pdf', 'png', 'jpg', 'jpeg'], battery: true,
     materials: ['18650 Li-ion (BIS-registered cells)', '21700 Li-ion (BIS-registered cells)', 'LiFePO4 32700'],
     features: ['1S to 24S, any parallel count', 'BMS 10–80 A with balancing', 'XT60 / XT90 / Anderson / JST connectors', 'Capacity and IR test report with every pack'],
   },
   laser: {
     title: 'Non-Metal Laser Cutting', short: 'Laser Cutting', icon: '🔥', lead: '1–3 days', order: 5,
     blurb: 'CO₂ laser cutting and engraving of acrylic, MDF, plywood, cardboard, leather and EVA foam — robot chassis, enclosures, nameplates, models and gifts.',
-    files: ['dxf', 'svg', 'pdf', 'ai', 'cdr', 'png', 'jpg', 'jpeg', 'zip'],
+    files: ['dxf'], dxf: true,
     materials: ['Acrylic 2 / 3 / 5 / 8 mm (clear and colours)', 'MDF 3 / 6 mm', 'Plywood 4 mm', 'Cardboard 3 mm', 'Leather', 'EVA foam'],
     features: ['Bed size 600 × 900 mm', 'Engraving of logos, text and photos', 'Kerf about 0.2 mm', 'Ideal for school and college projects'],
   },
@@ -62,15 +62,22 @@ const num = (v, def = 0) => (Number.isFinite(Number(v)) ? Number(v) : def);
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 class SpecError extends Error { constructor(m) { super(m); this.status = 400; } }
 
-const CELL = {
-  '18650': { label: '18650 Li-ion 3.6 V 2600 mAh', v: 3.6, mah: 2600, rate: 'cell_18650', g: 46 },
-  '21700': { label: '21700 Li-ion 3.6 V 4000 mAh', v: 3.6, mah: 4000, rate: 'cell_21700', g: 68 },
-  lfp: { label: 'LiFePO4 32700 3.2 V 6000 mAh', v: 3.2, mah: 6000, rate: 'cell_lfp_32700', g: 145 },
+export const CELL = {
+  '18650': { label: '18650 Li-ion 3.6 V 2600 mAh', short: '18650 · 2600 mAh', chem: 'Li-ion NMC', v: 3.6, vmax: 4.2, vmin: 3.0, mah: 2600, max_a: 5, cycles: '500+', dia: 18.5, len: 65, rate: 'cell_18650', g: 46, use: 'Everyday packs: robots, power banks, torches' },
+  '18650hd': { label: '18650 Li-ion 3.6 V 3000 mAh high-drain', short: '18650 · 3000 mAh HD', chem: 'Li-ion NMC', v: 3.6, vmax: 4.2, vmin: 2.5, mah: 3000, max_a: 20, cycles: '300+', dia: 18.5, len: 65, rate: 'cell_18650_hd', g: 48, use: 'High current: drones, power tools, RC cars' },
+  '21700': { label: '21700 Li-ion 3.6 V 4000 mAh', short: '21700 · 4000 mAh', chem: 'Li-ion NMC', v: 3.6, vmax: 4.2, vmin: 2.5, mah: 4000, max_a: 30, cycles: '500+', dia: 21.5, len: 70, rate: 'cell_21700', g: 68, use: 'E-bikes, scooters, AGVs — fewer cells, more power' },
+  '21700hc': { label: '21700 Li-ion 3.6 V 5000 mAh', short: '21700 · 5000 mAh', chem: 'Li-ion NMC', v: 3.6, vmax: 4.2, vmin: 2.5, mah: 5000, max_a: 10, cycles: '500+', dia: 21.5, len: 70, rate: 'cell_21700_hc', g: 70, use: 'Long range, moderate current: e-bikes, solar lights' },
+  lfp: { label: 'LiFePO4 32700 3.2 V 6000 mAh', short: 'LiFePO4 32700 · 6000 mAh', chem: 'LiFePO4', v: 3.2, vmax: 3.65, vmin: 2.5, mah: 6000, max_a: 18, cycles: '2000+', dia: 32.5, len: 70, rate: 'cell_lfp_32700', g: 145, use: 'Safest & longest life: solar, inverters, UPS, carts' },
+};
+export const PACK_OPTIONS = {
+  bms: [10, 20, 30, 40, 60, 80], connectors: [['xt60', 'XT60'], ['xt90', 'XT90'], ['anderson', 'Anderson SB50'], ['jst', 'JST'], ['dc', 'DC barrel 5.5 mm'], ['wires', 'Bare wires']],
+  casing: [['shrink', 'PVC heat-shrink'], ['abs', 'ABS plastic box'], ['metal', 'Aluminium box']], wires: [10, 20, 30, 50, 100],
 };
 const SHEET = {
   acrylic: { '2': 'acrylic_2mm_cm2', '3': 'acrylic_3mm_cm2', '5': 'acrylic_5mm_cm2', '8': 'acrylic_8mm_cm2' },
   laser: { 'acr3': 'acrylic_3mm_cm2', 'acr2': 'acrylic_2mm_cm2', 'acr5': 'acrylic_5mm_cm2', 'acr8': 'acrylic_8mm_cm2', 'mdf3': 'mdf_3mm_cm2', 'mdf6': 'mdf_6mm_cm2', 'ply4': 'ply_4mm_cm2', 'cardboard': 'cardboard_cm2', 'leather': 'leather_cm2', 'eva': 'eva_foam_cm2' },
 };
+const METAL_FINISH = { none: ['As cut'], deburr: ['Deburring', 0.05], powder: ['Powder coating', 0.6] };
 const SHEET_LABEL = { acr2: 'Acrylic 2 mm', acr3: 'Acrylic 3 mm', acr5: 'Acrylic 5 mm', acr8: 'Acrylic 8 mm', mdf3: 'MDF 3 mm', mdf6: 'MDF 6 mm', ply4: 'Plywood 4 mm', cardboard: 'Cardboard 3 mm', leather: 'Leather', eva: 'EVA foam' };
 const METAL = { ms: ['Mild steel', 'ms_cm2_mm', [0.8, 1, 1.2, 1.5, 2, 3, 4, 5, 6]], ss: ['Stainless steel SS304', 'ss_cm2_mm', [0.5, 0.8, 1, 1.2, 1.5, 2, 3, 4]], al: ['Aluminium', 'al_cm2_mm', [0.8, 1, 1.5, 2, 3, 4]], brass: ['Brass', 'brass_cm2_mm', [0.5, 0.8, 1, 1.5, 2]], gi: ['Galvanised iron', 'gi_cm2_mm', [0.5, 0.8, 1, 1.2, 1.5, 2]] };
 
@@ -169,16 +176,19 @@ export function estimate(service, raw = {}) {
   if (service === 'laser' || service === 'acrylic') {
     const mats = SHEET[service];
     const material = mats[String(raw.material)] ? String(raw.material) : Object.keys(mats)[0];
-    const w = clamp(num(raw.width_mm), 10, 1200); const h = clamp(num(raw.height_mm), 10, 900);
+    const w = clamp(num(raw.width_mm), 10, 1200); const h = clamp(num(raw.height_mm), 10, 1200);
     if (!(num(raw.width_mm) > 0 && num(raw.height_mm) > 0)) throw new SpecError('Enter the overall size of the part in mm');
     const cutM = clamp(num(raw.cut_length_m, 0) || round2(((w + h) * 2) / 1000), 0, 500);
     const engrave = clamp(num(raw.engrave_cm2, 0), 0, 100000);
     const colour = String(raw.colour || (service === 'acrylic' || String(raw.material || 'acr3').startsWith('acr') ? 'Clear' : 'Natural')).slice(0, 30);
-    specs = { material, width_mm: w, height_mm: h, cut_length_m: cutM, engrave_cm2: engrave, colour };
+    const pierces = clamp(Math.floor(num(raw.pierces, 0)), 0, 100000);
+    specs = { material, width_mm: w, height_mm: h, cut_length_m: cutM, engrave_cm2: engrave, colour, ...(pierces ? { pierces } : {}) };
+    if (service === 'laser' && !(Math.max(num(raw.width_mm), num(raw.height_mm)) <= 900 && Math.min(num(raw.width_mm), num(raw.height_mm)) <= 600)) info.note = 'The part is larger than our 600 × 900 mm bed — we will split it or quote separately.';
     const area = (w * h) / 100;
     const matLabel = service === 'acrylic' ? `Acrylic ${material} mm ${colour}` : `${SHEET_LABEL[material]}${material.startsWith('acr') ? ` ${colour}` : ''}`;
     add(`${matLabel}: ${round2(area)} cm² × ${qty}`, area * qty * R[mats[material]]);
     add(`Cutting ${cutM} m × ${qty}`, cutM * qty * R.cut_per_m);
+    if (pierces) add(`Pierces ${pierces} × ${qty}`, pierces * num(R.laser_pierce, 0.5) * qty);
     if (engrave) add(`Engraving ${engrave} cm² × ${qty}`, engrave * qty * R.engrave_per_cm2);
     const sub = lines.reduce((s, l) => s + l.amount, 0);
     if (sub < R.cut_min) add('Minimum order top-up', R.cut_min - sub);
@@ -206,16 +216,22 @@ export function estimate(service, raw = {}) {
     const material = METAL[raw.material] ? raw.material : 'ms';
     const [mLabel, rateKey, thicknesses] = METAL[material];
     const t = thicknesses.includes(num(raw.thickness)) ? num(raw.thickness) : thicknesses[Math.min(2, thicknesses.length - 1)];
-    const w = clamp(num(raw.width_mm), 10, 3000); const h = clamp(num(raw.height_mm), 10, 1500);
+    const w = clamp(num(raw.width_mm), 10, 3000); const h = clamp(num(raw.height_mm), 10, 3000);
     if (!(num(raw.width_mm) > 0 && num(raw.height_mm) > 0)) throw new SpecError('Enter the overall size of the part in mm');
     const cutM = clamp(num(raw.cut_length_m, 0) || round2(((w + h) * 2) / 1000), 0, 1000);
     const bends = clamp(Math.floor(num(raw.bends, 0)), 0, 50);
-    specs = { material, thickness: t, width_mm: w, height_mm: h, cut_length_m: cutM, bends };
+    const pierces = clamp(Math.floor(num(raw.pierces, 0)), 0, 100000);
+    const finish = METAL_FINISH[raw.finish] ? raw.finish : 'none';
+    specs = { material, thickness: t, width_mm: w, height_mm: h, cut_length_m: cutM, bends, ...(pierces ? { pierces } : {}), finish };
+    const fitsSheet = (Math.max(num(raw.width_mm), num(raw.height_mm)) <= 3000 && Math.min(num(raw.width_mm), num(raw.height_mm)) <= 1500);
+    if (!fitsSheet) info.note = 'The part is larger than our 1500 × 3000 mm sheet — we will quote it separately.';
     info.thicknesses = thicknesses;
     const area = (w * h) / 100;
     add(`${mLabel} ${t} mm sheet: ${round2(area)} cm² × ${qty}`, area * t * R[rateKey] * qty);
     add(`Fibre-laser cutting ${cutM} m × ${qty}`, cutM * R.metal_cut_per_m_mm * Math.max(1, t) * qty);
+    if (pierces) add(`Pierces ${pierces} × ${qty}`, pierces * num(R.metal_pierce, 2) * Math.max(1, t / 2) * qty);
     if (bends) add(`Bending ${bends} bend(s) × ${qty}`, bends * R.metal_bend_each * qty);
+    if (finish !== 'none') add(`${METAL_FINISH[finish][0]} × ${qty}`, (w * h / 100) * METAL_FINISH[finish][1] * qty);
     add('Setup & nesting', R.metal_setup);
     const sub = lines.reduce((s2, l) => s2 + l.amount, 0);
     if (sub < R.metal_min) add('Minimum order top-up', R.metal_min - sub);
@@ -233,16 +249,26 @@ export function estimate(service, raw = {}) {
     } else {
       const cell = CELL[raw.cell] ? raw.cell : '18650';
       const s = clamp(Math.floor(num(raw.series, 3)), 1, 24); const p = clamp(Math.floor(num(raw.parallel, 1)), 1, 20);
-      const bmsA = [10, 20, 30, 40, 60, 80].includes(num(raw.bms_a)) ? num(raw.bms_a) : 20;
-      const connector = ['xt60', 'xt90', 'anderson', 'jst', 'wires'].includes(raw.connector) ? raw.connector : 'xt60';
+      const bmsA = PACK_OPTIONS.bms.includes(num(raw.bms_a)) ? num(raw.bms_a) : 20;
+      const connector = PACK_OPTIONS.connectors.some(([k]) => k === raw.connector) ? raw.connector : 'xt60';
+      const casing = PACK_OPTIONS.casing.some(([k]) => k === raw.casing) ? raw.casing : 'shrink';
+      const wire = PACK_OPTIONS.wires.includes(num(raw.wire_cm)) ? num(raw.wire_cm) : 10;
+      const charger = !!raw.charger; const ntc = !!raw.ntc;
       const c = CELL[cell]; const cells = s * p;
-      specs = { mode, cell, series: s, parallel: p, bms_a: bmsA, connector };
-      info.nominal_v = round2(s * c.v); info.capacity_ah = round2((p * c.mah) / 1000);
-      info.energy_wh = round2(info.nominal_v * info.capacity_ah); info.cells = cells; info.weight_kg = round2((cells * c.g) / 1000 * 1.1);
-      add(`${cells} × ${c.label} (BIS-registered) × ${qty} pack(s)`, cells * R[c.rate] * qty);
-      add(`${s}S ${bmsA} A BMS × ${qty}`, (R.bms_base + R.bms_per_s * s + R.bms_per_10a * (bmsA / 10)) * qty);
-      add(`Spot welding, nickel strip, insulation × ${qty}`, (R.assembly_per_cell * cells + R.pack_base) * qty);
-      summary = `${qty} × ${s}S${p}P ${cell} pack — ${info.nominal_v} V, ${info.capacity_ah} Ah (${info.energy_wh} Wh), ${bmsA} A BMS, ${connector.toUpperCase()}`;
+      specs = { mode, cell, series: s, parallel: p, bms_a: bmsA, connector, casing, wire_cm: wire, charger, ntc, application: String(raw.application || '').slice(0, 40) };
+      info.nominal_v = round2(s * c.v); info.max_v = round2(s * c.vmax); info.min_v = round2(s * c.vmin); info.capacity_ah = round2((p * c.mah) / 1000);
+      info.energy_wh = round2(info.nominal_v * info.capacity_ah); info.cells = cells; info.weight_kg = round2((cells * c.g) / 1000 * (casing === 'shrink' ? 1.1 : casing === 'abs' ? 1.25 : 1.4));
+      info.max_current_a = Math.min(bmsA, p * c.max_a); info.cell_limited = p * c.max_a < bmsA;
+      info.size_mm = [Math.round(s * c.dia + 4), Math.round(p * c.dia + 4), Math.round(c.len + 6)];
+      add(`${cells} × ${c.label} (BIS-registered) × ${qty} pack(s)`, cells * num(R[c.rate], 150) * qty);
+      add(`${s}S ${bmsA} A BMS with balancing × ${qty}`, (R.bms_base + R.bms_per_s * s + R.bms_per_10a * (bmsA / 10)) * qty);
+      add(`Spot welding, nickel strip, fish paper, insulation × ${qty}`, (R.assembly_per_cell * cells + R.pack_base) * qty);
+      if (casing !== 'shrink') add(`${casing === 'abs' ? 'ABS plastic box' : 'Aluminium box'} × ${qty}`, (casing === 'abs' ? num(R.casing_abs_base, 250) + num(R.casing_abs_per_cell, 8) * cells : num(R.casing_metal_base, 600) + num(R.casing_metal_per_cell, 15) * cells) * qty);
+      if (wire > 10) add(`Output wire ${wire} cm × ${qty}`, ((wire - 10) / 10) * num(R.wire_per_10cm, 12) * Math.max(1, bmsA / 20) * qty);
+      if (ntc) add(`NTC temperature sensor × ${qty}`, num(R.ntc_sensor, 60) * qty);
+      if (charger) add(`${info.max_v} V matching charger × ${qty}`, (num(R.charger_base, 450) + num(R.charger_per_s, 30) * s) * qty);
+      summary = `${qty} × ${s}S${p}P ${c.short} pack — ${info.nominal_v} V, ${info.capacity_ah} Ah (${info.energy_wh} Wh), ${bmsA} A BMS, ${connector.toUpperCase()}, ${casing}`;
+      if (info.cell_limited) info.warn = `The cells can deliver about ${p * c.max_a} A in this layout — less than the ${bmsA} A BMS. Use high-drain cells or more in parallel for more current.`;
       if (info.energy_wh > 100) info.note = 'Packs above 100 Wh ship by surface/road only (not air).';
     }
   }
@@ -255,9 +281,23 @@ export function estimate(service, raw = {}) {
 export function publicCatalog() {
   const R = getSetting('services');
   const services = Object.entries(SERVICES).filter(([, s]) => !s.legacy).map(([id, s]) => ({ id, ...s })).sort((a, b) => a.order - b.order);
+  const sheets = {
+    metal: Object.entries(METAL).map(([id, [name, , thicknesses]]) => ({ id, name, thicknesses, colour: { ms: '#6b7280', ss: '#c7ccd3', al: '#aab3bf', brass: '#c9a646', gi: '#9ca3af' }[id] })),
+    metal_finish: Object.entries(METAL_FINISH).map(([id, [name]]) => ({ id, name })),
+    laser: [
+      { group: 'Acrylic', colour: '#93c5fd', items: [['acr2', '2 mm'], ['acr3', '3 mm'], ['acr5', '5 mm'], ['acr8', '8 mm']] },
+      { group: 'MDF', colour: '#b08a5a', items: [['mdf3', '3 mm'], ['mdf6', '6 mm']] },
+      { group: 'Plywood', colour: '#d6b37a', items: [['ply4', '4 mm']] },
+      { group: 'Cardboard', colour: '#c8a97e', items: [['cardboard', '3 mm']] },
+      { group: 'Leather', colour: '#8b5a3c', items: [['leather', '1–2 mm']] },
+      { group: 'EVA foam', colour: '#4b5563', items: [['eva', '2–10 mm']] },
+    ],
+    acrylic_colours: ['Clear', 'Black', 'White', 'Red', 'Blue', 'Yellow', 'Fluorescent', 'Frosted'],
+  };
   const print = {
     techs: Object.entries(TECH).map(([id, t]) => ({ id, ...t })), finishes: FINISHES,
     industrial: I3D_MATERIALS, fdm: FDM_MATERIALS.map(({ rate, ...m }) => m), fdm_build: FDM_BUILD,
   };
-  return { enabled: !!R.enabled, gst_rate: R.gst_rate, services, print };
+  const battery = { cells: Object.entries(CELL).map(([id, c]) => { const { rate, ...pub } = c; return { id, ...pub }; }), ...PACK_OPTIONS };
+  return { enabled: !!R.enabled, gst_rate: R.gst_rate, services, print, sheets, battery };
 }

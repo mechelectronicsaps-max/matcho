@@ -11,6 +11,7 @@ import { validGstin } from '../pricing.js';
 import { scoreLead } from '../services/engine.js';
 import { analyzeGerberZip } from '../services/gerber.js';
 import { analyzeModel, MODEL_EXT } from '../services/mesh.js';
+import { analyzeDxf } from '../services/dxf.js';
 
 const UPLOADS = path.join(path.dirname(DB_FILE), 'uploads');
 const MAX_FILE = 20 * 1024 * 1024; const MAX_FILES = 5;
@@ -48,6 +49,14 @@ extras.post('/services/model', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/** Laser cutting: read a DXF → size, cut length, pierces and a preview. */
+extras.post('/services/dxf', (req, res, next) => {
+  try {
+    const buf = Buffer.from(String(req.body?.data || '').replace(/^data:[^,]*,/, ''), 'base64');
+    res.json(analyzeDxf(buf, req.body?.unit === 'inch' ? 'inch' : 'mm'));
+  } catch (e) { next(e); }
+});
+
 extras.post('/services/requests', async (req, res, next) => {
   try {
     if (!getSetting('services').enabled) return res.status(400).json({ error: 'Services are not taking new requests right now' });
@@ -75,7 +84,18 @@ extras.post('/services/requests', async (req, res, next) => {
       model = await analyzeModel(d.buf, d.base);
       Object.assign(b, { volume_cm3: model.volume_cm3, area_cm2: model.area_cm2, size_mm: model.size_mm.join('x') });
     }
+    let drawing = null;
+    if (SERVICES[b.service]?.dxf) {
+      const d = decoded.find((x) => x.base.toLowerCase().endsWith('.dxf'));
+      if (!d) return res.status(400).json({ error: 'Upload your design as a .dxf file to order laser cutting' });
+      drawing = analyzeDxf(d.buf, b.unit === 'inch' ? 'inch' : 'mm');
+      Object.assign(b, { width_mm: drawing.width_mm, height_mm: drawing.height_mm, cut_length_m: drawing.cut_length_m, pierces: drawing.pierces });
+    }
     const est = estimate(b.service, b);
+    if (drawing) {
+      est.specs.drawing = { unit: drawing.unit, width_mm: drawing.width_mm, height_mm: drawing.height_mm, cut_length_m: drawing.cut_length_m, pierces: drawing.pierces, open_paths: drawing.open_paths, part_area_cm2: drawing.part_area_cm2, warnings: drawing.warnings };
+      b.__dxfSvg = drawing.svg;
+    }
     if (model) est.specs.model = { file: decoded.find((x) => MODEL_EXT.includes(x.base.split('.').pop().toLowerCase())).base, volume_cm3: model.volume_cm3, area_cm2: model.area_cm2, size_mm: model.size_mm, triangles: model.triangles, closed: model.closed, warnings: model.warnings };
     const reqNo = newReqNo();
     const stored = [];
@@ -92,6 +112,7 @@ extras.post('/services/requests', async (req, res, next) => {
       fs.writeFileSync(path.join(dir, 'gerber-top.svg'), g.top_svg); fs.writeFileSync(path.join(dir, 'gerber-bottom.svg'), g.bottom_svg);
       est.specs.gerber = { width_mm: g.width_mm, height_mm: g.height_mm, layers: g.layers, copper_layers: g.copper_layers, drill_hits: g.drill_hits, has_outline: g.has_outline, files: g.files.length, warnings: g.warnings };
     }
+    if (b.__dxfSvg) { const dir = path.join(UPLOADS, reqNo); fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'dxf-preview.svg'), b.__dxfSvg); }
     const r = run(`INSERT INTO service_requests(req_no, service, user_id, name, phone, email, specs, quantity, notes, files, estimate, estimate_lines) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       reqNo, b.service, req.user?.id ?? null, name, phone, b.email || req.user?.email || null, JSON.stringify(est.specs), est.quantity,
       String(b.notes || '').slice(0, 2000) || null, JSON.stringify(stored), est.total, JSON.stringify(est.lines));
@@ -182,6 +203,12 @@ servicesStaff.get('/:id/gerber/:side', (req, res) => {
   const side = req.params.side === 'bottom' ? 'bottom' : 'top';
   const p = r && path.join(UPLOADS, r.req_no, `gerber-${side}.svg`);
   if (!p || !fs.existsSync(p)) return res.status(404).json({ error: 'No board render for this order' });
+  res.set({ 'Content-Type': 'image/svg+xml', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" }).send(fs.readFileSync(p));
+});
+servicesStaff.get('/:id/dxf', (req, res) => {
+  const r = get('SELECT req_no FROM service_requests WHERE id = ?', req.params.id);
+  const p = r && path.join(UPLOADS, r.req_no, 'dxf-preview.svg');
+  if (!p || !fs.existsSync(p)) return res.status(404).json({ error: 'No drawing preview for this job' });
   res.set({ 'Content-Type': 'image/svg+xml', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" }).send(fs.readFileSync(p));
 });
 servicesStaff.get('/:id/model', async (req, res, next) => {

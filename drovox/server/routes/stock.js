@@ -7,6 +7,8 @@ import { orderDetail, transition, moveStock, STATUS_LABEL } from '../services/or
 import { notify, sendWhatsApp } from '../services/whatsapp.js';
 import { addCategory, addStarterCategories, nextSku } from '../catalog.js';
 import { QuoteError } from '../pricing.js';
+import { saveImage, deleteImage, parseImages, MAX_IMAGES } from '../images.js';
+import { writeProductInfo } from '../services/ai.js';
 
 export const stock = express.Router();
 stock.use(requireArea('stock'));
@@ -76,6 +78,7 @@ stock.get('/products', (req, res) => {
 });
 stock.get('/products/:id/movements', (req, res) => res.json(all('SELECT m.*, u.name user FROM stock_movements m LEFT JOIN users u ON u.id = m.user_id WHERE product_id = ? ORDER BY m.id DESC LIMIT 100', req.params.id)));
 
+const list = (v, max, len) => (Array.isArray(v) ? v : String(v || '').split('\n')).map((x) => String(x).trim().slice(0, len)).filter(Boolean).slice(0, max);
 function productFields(b) {
   const tiers = Array.isArray(b.tiers) ? b.tiers.filter((t) => Number(t.min_qty) > 1 && Number(t.price) > 0).map((t) => ({ min_qty: Number(t.min_qty), price: Number(t.price) })) : [];
   const f = {
@@ -85,6 +88,8 @@ function productFields(b) {
     gst_rate: Number(b.gst_rate ?? 18), reorder_level: Number(b.reorder_level ?? 10), weight_g: Number(b.weight_g) || 50,
     tiers: JSON.stringify(tiers), supplier_id: Number(b.supplier_id) || null, active: b.active === false || b.active === 0 ? 0 : 1,
     barcode: String(b.barcode || '').trim() || null,
+    short_description: String(b.short_description || '').trim().slice(0, 600) || null,
+    highlights: JSON.stringify(list(b.highlights, 10, 200)), in_box: JSON.stringify(list(b.in_box, 20, 120)),
   };
   if (!f.sku || !f.name) throw new QuoteError('SKU and name are required');
   if (!(f.price > 0) || !(f.mrp >= f.price)) throw new QuoteError('Price must be above 0 and MRP must be at least the price');
@@ -102,9 +107,9 @@ stock.post('/products', (req, res, next) => {
     if (get('SELECT 1 FROM products WHERE sku = ?', f.sku)) throw new QuoteError('SKU already exists');
     if (f.barcode && get('SELECT 1 FROM products WHERE barcode = ? OR sku = ?', f.barcode, f.barcode)) throw new QuoteError('That barcode is already used by another product');
     const slug = f.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 60) + '-' + f.sku.toLowerCase().replace(/[^a-z0-9]+/g, '');
-    const r = run(`INSERT INTO products(sku, name, slug, category_id, brand, description, specs, tags, image, mrp, price, cost_price, hsn, gst_rate, stock, reorder_level, weight_g, tiers, supplier_id, active, created_by, barcode)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?)`,
-      f.sku, f.name, slug, f.category_id, f.brand, f.description, f.specs, f.tags, f.image, f.mrp, f.price, f.cost_price, f.hsn, f.gst_rate, f.reorder_level, f.weight_g, f.tiers, f.supplier_id, f.active, req.user.id, f.barcode);
+    const r = run(`INSERT INTO products(sku, name, slug, category_id, brand, description, specs, tags, image, mrp, price, cost_price, hsn, gst_rate, stock, reorder_level, weight_g, tiers, supplier_id, active, created_by, barcode, short_description, highlights, in_box)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?,?)`,
+      f.sku, f.name, slug, f.category_id, f.brand, f.description, f.specs, f.tags, f.image, f.mrp, f.price, f.cost_price, f.hsn, f.gst_rate, f.reorder_level, f.weight_g, f.tiers, f.supplier_id, f.active, req.user.id, f.barcode, f.short_description, f.highlights, f.in_box);
     const id = Number(r.lastInsertRowid);
     const opening = Math.floor(Number(req.body.stock) || 0);
     if (opening > 0) moveStock(id, opening, 'adjust', 'opening stock', req.user.id);
@@ -117,15 +122,61 @@ stock.put('/products/:id', (req, res, next) => {
   try {
     const old = get('SELECT * FROM products WHERE id = ?', req.params.id);
     if (!old) return res.status(404).json({ error: 'Not found' });
-    const f = productFields({ ...old, specs: JSON.parse(old.specs), tiers: JSON.parse(old.tiers), ...req.body });
+    const f = productFields({ ...old, specs: JSON.parse(old.specs), tiers: JSON.parse(old.tiers), highlights: JSON.parse(old.highlights || '[]'), in_box: JSON.parse(old.in_box || '[]'), ...req.body });
     if (f.sku !== old.sku && get('SELECT 1 FROM products WHERE sku = ? AND id != ?', f.sku, old.id)) throw new QuoteError('SKU already exists');
     if (f.barcode && get('SELECT 1 FROM products WHERE (barcode = ? OR sku = ?) AND id != ?', f.barcode, f.barcode, old.id)) throw new QuoteError('That barcode is already used by another product');
-    run(`UPDATE products SET sku=?, name=?, category_id=?, brand=?, description=?, specs=?, tags=?, image=?, mrp=?, price=?, cost_price=?, hsn=?, gst_rate=?, reorder_level=?, weight_g=?, tiers=?, supplier_id=?, active=?, barcode=?, updated_at=datetime('now') WHERE id = ?`,
-      f.sku, f.name, f.category_id, f.brand, f.description, f.specs, f.tags, f.image, f.mrp, f.price, f.cost_price, f.hsn, f.gst_rate, f.reorder_level, f.weight_g, f.tiers, f.supplier_id, f.active, f.barcode, old.id);
+    run(`UPDATE products SET sku=?, name=?, category_id=?, brand=?, description=?, specs=?, tags=?, image=?, mrp=?, price=?, cost_price=?, hsn=?, gst_rate=?, reorder_level=?, weight_g=?, tiers=?, supplier_id=?, active=?, barcode=?, short_description=?, highlights=?, in_box=?, updated_at=datetime('now') WHERE id = ?`,
+      f.sku, f.name, f.category_id, f.brand, f.description, f.specs, f.tags, f.image, f.mrp, f.price, f.cost_price, f.hsn, f.gst_rate, f.reorder_level, f.weight_g, f.tiers, f.supplier_id, f.active, f.barcode, f.short_description, f.highlights, f.in_box, old.id);
     const changed = Object.fromEntries(Object.entries(f).filter(([k, v]) => String(old[k]) !== String(v)).map(([k, v]) => [k, { from: old[k], to: v }]));
     audit(req, 'product.update', 'product', f.sku, changed);
     const now = get('SELECT * FROM products WHERE id = ?', old.id);
     res.json(now);
+  } catch (e) { next(e); }
+});
+
+// ---- product photos (3–5 per product; resized in the browser) ---------------------------------
+stock.post('/products/:id/images', (req, res, next) => {
+  try {
+    const p = get('SELECT id, sku, images FROM products WHERE id = ?', req.params.id);
+    if (!p) return res.status(404).json({ error: 'Not found' });
+    const imgs = parseImages(p.images);
+    if (imgs.length >= MAX_IMAGES) return res.status(400).json({ error: `A product can have up to ${MAX_IMAGES} photos — delete one first` });
+    const key = saveImage(req.body?.variants);
+    imgs.push(key);
+    run(`UPDATE products SET images = ?, updated_at = datetime('now') WHERE id = ?`, JSON.stringify(imgs), p.id);
+    audit(req, 'product.image_add', 'product', p.sku, { key });
+    res.json({ images: imgs });
+  } catch (e) { next(e); }
+});
+stock.put('/products/:id/images', (req, res) => {
+  const p = get('SELECT id, sku, images FROM products WHERE id = ?', req.params.id);
+  if (!p) return res.status(404).json({ error: 'Not found' });
+  const cur = parseImages(p.images); const want = Array.isArray(req.body?.images) ? req.body.images.map(String) : [];
+  if (want.length !== cur.length || !want.every((k) => cur.includes(k))) return res.status(400).json({ error: 'Send the same photos in the new order' });
+  run(`UPDATE products SET images = ?, updated_at = datetime('now') WHERE id = ?`, JSON.stringify(want), p.id);
+  res.json({ images: want });
+});
+stock.delete('/products/:id/images/:key', (req, res) => {
+  const p = get('SELECT id, sku, images FROM products WHERE id = ?', req.params.id);
+  if (!p) return res.status(404).json({ error: 'Not found' });
+  const imgs = parseImages(p.images);
+  if (!imgs.includes(req.params.key)) return res.status(404).json({ error: 'Photo not found' });
+  deleteImage(req.params.key);
+  const left = imgs.filter((k) => k !== req.params.key);
+  run(`UPDATE products SET images = ?, updated_at = datetime('now') WHERE id = ?`, JSON.stringify(left), p.id);
+  audit(req, 'product.image_delete', 'product', p.sku, { key: req.params.key });
+  res.json({ images: left });
+});
+
+/** ✨ Write the product listing (short description, highlights, specs, box contents, tags) with Claude. */
+stock.post('/products/ai-fill', async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    if (!String(b.name || '').trim()) return res.status(400).json({ error: 'Enter the product name first' });
+    const cat = b.category_id ? get('SELECT name FROM categories WHERE id = ?', b.category_id)?.name : '';
+    const out = await writeProductInfo({ name: String(b.name).slice(0, 200), brand: String(b.brand || '').slice(0, 80), category: cat || '', specs: b.specs || {}, notes: String(b.description || '').slice(0, 2000) });
+    audit(req, 'product.ai_fill', 'product', String(b.sku || b.name).slice(0, 60), {});
+    res.json(out);
   } catch (e) { next(e); }
 });
 

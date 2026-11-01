@@ -1,5 +1,6 @@
 // Drovox server: storefront (/), stockist panel (/stockist), master panel (/master) and the JSON API (/api).
 import express from 'express';
+import compression from 'compression';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -9,11 +10,29 @@ import { stock } from './routes/stock.js';
 import { admin } from './routes/admin.js';
 import { extras, servicesStaff, partnersAdmin } from './routes/extras.js';
 import { content, contentAdmin, SITE_UPLOADS_DIR } from './routes/content.js';
+import { PRODUCT_IMG_DIR } from './images.js';
 import { startScheduler } from './services/jobs.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(here, '..', 'public');
 const BUILD = Date.now().toString(36);
+
+// ---- micro-cache: public catalogue data that every page asks for (30 s; cleared on any staff change) --
+const CACHED = new Set(['/api/config', '/api/categories', '/api/site', '/api/services']);
+const cache = new Map();
+export function clearMicroCache() { cache.clear(); }
+function microCache(req, res, next) {
+  if (req.method !== 'GET') {
+    if (/^\/api\/(admin|stock)\//.test(req.path)) res.on('finish', () => { if (res.statusCode < 400) cache.clear(); });
+    return next();
+  }
+  if (!CACHED.has(req.path) || req.headers.authorization) return next();
+  const hit = cache.get(req.originalUrl);
+  if (hit && hit.until > Date.now()) return res.set('X-Cache', 'HIT').type('json').send(hit.body);
+  const json = res.json.bind(res);
+  res.json = (body) => { if (res.statusCode === 200) cache.set(req.originalUrl, { body: JSON.stringify(body), until: Date.now() + 30_000 }); return json(body); };
+  next();
+}
 
 export function createApp() {
   const app = express();
@@ -23,13 +42,18 @@ export function createApp() {
     res.set({ 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'X-Frame-Options': 'SAMEORIGIN' });
     next();
   });
+  // gzip/brotli-size savings on HTML, JS, CSS and JSON (photos are already compressed and are skipped)
+  app.use(compression({ threshold: 1024 }));
+  app.use(microCache);
   // Razorpay webhooks are verified against the raw body, so this route comes before the JSON parser.
   app.post('/api/webhooks/razorpay', express.raw({ type: '*/*', limit: '1mb' }), razorpayWebhook);
   // Service requests carry design files (STL, Gerber, DXF…) as base64, so they get a larger limit.
   app.use('/api/services/requests', express.json({ limit: '130mb' }));
   app.use('/api/services/pcb', express.json({ limit: '40mb' }));
   app.use('/api/services/model', express.json({ limit: '90mb' }));
+  app.use('/api/services/dxf', express.json({ limit: '30mb' }));
   app.use(['/api/jobs', '/api/admin/content'], express.json({ limit: '8mb' }));
+  app.use('/api/stock/products', express.json({ limit: '12mb' }));   // product photos (3 sizes)
   app.use(express.json({ limit: '1mb' }));
   app.use('/api', attachUser);
   app.use('/api/stock/services', servicesStaff);
@@ -44,7 +68,8 @@ export function createApp() {
 
   // Label printing and scanning libraries, served locally so they work offline.
   const vendor = { 'jsbarcode.js': 'jsbarcode/dist/JsBarcode.all.min.js', 'qrcode.js': 'qrcode-generator/dist/qrcode.js', 'html5-qrcode.js': 'html5-qrcode/html5-qrcode.min.js', 'three.js': 'three/build/three.module.min.js' };
-  for (const [name, file] of Object.entries(vendor)) app.get(`/vendor/${name}`, (_req, res) => res.sendFile(path.join(here, '..', 'node_modules', file), { headers: { 'Cache-Control': 'no-cache' } }));
+  // library files only change after `npm install`, so a day of caching is safe
+  for (const [name, file] of Object.entries(vendor)) app.get(`/vendor/${name}`, (_req, res) => res.sendFile(path.join(here, '..', 'node_modules', file), { headers: { 'Cache-Control': 'public, max-age=86400' } }));
   // no-cache = the browser must check with the server (cheap ETag check) before reusing a file,
   // so updated pages and scripts are picked up immediately after an upgrade.
   // Pages load their scripts and styles from /v/<build>/…, a new address every time the server starts,
@@ -57,6 +82,8 @@ export function createApp() {
   for (const [route, file] of [['/', 'index.html'], ['/index.html', 'index.html'], ['/stockist', 'stockist.html'], ['/stockist.html', 'stockist.html'], ['/master', 'master.html'], ['/master.html', 'master.html']]) app.get(route, page(file));
   app.use('/v/:build', express.static(PUBLIC, { maxAge: '30d', immutable: true }));
   app.use('/uploads/site', express.static(SITE_UPLOADS_DIR, { maxAge: '7d' }));
+  // product photos: random file names never change, so browsers and CDNs can keep them for a year
+  app.use('/img/p', express.static(PRODUCT_IMG_DIR, { maxAge: '365d', immutable: true, index: false, fallthrough: false }));
   app.use(express.static(PUBLIC, { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 
 

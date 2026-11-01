@@ -1,5 +1,5 @@
 // Drovox stockist panel: fulfilment queue, products & stock, China import batches with landed cost, reorder planning.
-import { $, $$, api, esc, money, num, toast, modal, badge, ago, art, formData, downloadCsv, downloadAuthed, dt, getToken } from './common.js';
+import { $, $$, api, esc, money, num, toast, modal, badge, ago, art, formData, downloadCsv, downloadAuthed, dt, getToken, imgUrl, photoVariants } from './common.js';
 import { startPanel, head, kpi } from './panel.js';
 import { openOrder } from './orders-ui.js';
 import { mountModel3d } from './model3d.js';
@@ -77,6 +77,56 @@ async function orders(el, params) {
   });
 }
 
+const jsonList = (v) => { if (Array.isArray(v)) return v; try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+const MAX_PHOTOS = 5;
+
+/** Photo manager in the product form. Existing products save each change at once; new ones upload after create. */
+function wirePhotos(m, p) {
+  let images = jsonList(p?.images); const queued = [];
+  const grid = $('#phs', m.el); const input = $('#phfile', m.el);
+  const render = () => {
+    const total = images.length + queued.length;
+    grid.innerHTML = images.map((k, i) => `<div class="ph"><img src="${imgUrl(k, 's')}" alt="">${i ? '' : '<span class="main">Main</span>'}<div class="acts">${i ? `<button type="button" data-mv="${i}" title="Move left">◀</button>` : ''}${i < images.length - 1 ? `<button type="button" data-mv="${i + 1}" title="Move right">▶</button>` : ''}<button type="button" data-del="${esc(k)}" title="Delete">✕</button></div></div>`).join('')
+      + queued.map((q, i) => `<div class="ph"><img src="${q.variants.s}" alt=""><span class="main" style="background:var(--amber)">Saves with product</span><div class="acts"><button type="button" data-unq="${i}">✕</button></div></div>`).join('')
+      + (total < MAX_PHOTOS ? `<div class="ph add" id="phadd">➕<br>Add photo${total ? '' : 's'}<br><span class="tiny">${total}/${MAX_PHOTOS}</span></div>` : '');
+    $('#phadd', grid)?.addEventListener('click', () => input.click());
+    $$('[data-del]', grid).forEach((b) => { b.onclick = async () => { if (!confirm('Delete this photo?')) return; try { images = (await api(`${B}/products/${p.id}/images/${b.dataset.del}`, { method: 'DELETE' })).images; render(); } catch (e) { toast(e.message, 'err'); } }; });
+    $$('[data-mv]', grid).forEach((b) => { b.onclick = async () => { const i = Number(b.dataset.mv); const next = [...images]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; try { images = (await api(`${B}/products/${p.id}/images`, { method: 'PUT', body: { images: next } })).images; render(); } catch (e) { toast(e.message, 'err'); } }; });
+    $$('[data-unq]', grid).forEach((b) => { b.onclick = () => { queued.splice(Number(b.dataset.unq), 1); render(); }; });
+  };
+  input.onchange = async () => {
+    const files = [...input.files].slice(0, MAX_PHOTOS - images.length - queued.length); input.value = '';
+    for (const f of files) {
+      grid.insertAdjacentHTML('beforeend', '<div class="ph add" data-busy><span class="spinner"></span></div>');
+      try {
+        const variants = await photoVariants(f);
+        if (p?.id) images = (await api(`${B}/products/${p.id}/images`, { method: 'POST', body: { variants } })).images; else queued.push({ variants });
+      } catch (e) { toast(e.message, 'err'); }
+      render();
+    }
+  };
+  render();
+  return { async uploadQueued(id) { for (const q of queued) await api(`${B}/products/${id}/images`, { method: 'POST', body: { variants: q.variants } }); } };
+}
+
+function wireAiFill(m, form) {
+  $('#aifill', m.el).onclick = async (e) => {
+    const btn = e.currentTarget; const f = readProductForm(form);
+    if (!f.name.trim()) { toast('Enter the product name first', 'err'); form.elements.name.focus(); return; }
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Writing…';
+    try {
+      const r = await api(`${B}/products/ai-fill`, { method: 'POST', body: { name: f.name, brand: f.brand, category_id: f.category_id, sku: f.sku, specs: f.specs, description: f.description } });
+      const set = (n, v) => { if (v && form.elements[n]) { form.elements[n].value = v; form.elements[n].classList.add('ai-filled'); } };
+      set('short_description', r.short_description); set('highlights', r.highlights.join('\n')); set('description', r.description); set('in_box', r.in_box.join('\n'));
+      set('specs', Object.entries({ ...r.specs, ...f.specs }).map(([k, v]) => `${k}: ${v}`).join('\n'));
+      set('tags', [...new Set([...String(f.tags || '').split(','), ...r.tags.split(',')].map((t) => t.trim()).filter(Boolean))].join(','));
+      if (r.hsn && (!f.hsn || f.hsn === '8542')) set('hsn', r.hsn);
+      toast(r.confidence === 'low' ? 'Filled — Claude was unsure this is the exact part, please check carefully' : 'Filled with AI — review and save', r.confidence === 'low' ? 'err' : 'ok');
+    } catch (err) { toast(err.message, 'err'); }
+    btn.disabled = false; btn.textContent = '✨ Fill with AI';
+  };
+}
+
 function productForm(p = {}) {
   const tiers = p.tiers ? (typeof p.tiers === 'string' ? JSON.parse(p.tiers) : p.tiers) : [];
   const specs = p.specs ? (typeof p.specs === 'string' ? JSON.parse(p.specs) : p.specs) : {};
@@ -86,7 +136,9 @@ function productForm(p = {}) {
     <label class="f">Drovox SKU <span class="muted">(auto from category)</span><div class="row" style="flex-wrap:nowrap;margin-top:4px"><input name="sku" value="${esc(p.sku || '')}" placeholder="auto e.g. DRV-SEN-0001" style="text-transform:uppercase"><button type="button" class="btn sm" id="gen-sku" title="Generate next SKU">↻</button></div></label>
     <label class="f">Manufacturer barcode (EAN/UPC, optional)<div class="row" style="flex-wrap:nowrap;margin-top:4px"><input name="barcode" value="${esc(p.barcode || '')}" placeholder="scan or type"><button type="button" class="btn sm" id="scan-bc" title="Scan with camera">📷</button></div></label>
     <label class="f">Icon (emoji, shown until photos are added)<input name="image" value="${esc(p.image || '📦')}" maxlength="4"></label>
-    <label class="f full">Product name<input name="name" required value="${esc(p.name || '')}"></label>
+    <label class="f full">Product name<input name="name" required value="${esc(p.name || '')}" placeholder="e.g. HC-SR04 Ultrasonic Distance Sensor Module"></label>
+    <div class="full ai-box row between"><div class="small"><b>✨ Fill with AI</b> — Claude writes the short description, highlights, specifications, box contents and search tags from the name and brand. Check the details before saving.</div><button type="button" class="btn sm indigo" id="aifill">✨ Fill with AI</button></div>
+    <div class="full"><div class="f">Photos <span class="muted">(3–5 recommended · first photo is the main one · resized automatically for fast loading)</span></div><div class="ph-grid" id="phs" style="margin-top:6px"></div><input type="file" id="phfile" accept="image/*" multiple hidden></div>
     <label class="f">Supplier<select name="supplier_id"><option value="">—</option>${SUPPLIERS.map((s) => `<option value="${s.id}" ${s.id === p.supplier_id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
     <label class="f">Brand<input name="brand" value="${esc(p.brand || '')}"></label><label class="f">HSN code<input name="hsn" value="${esc(p.hsn || '8542')}"></label>
     <label class="f">Selling price (₹, incl. GST)<input name="price" type="number" step="0.01" required value="${p.price ?? ''}"></label><label class="f">MRP (₹)<input name="mrp" type="number" step="0.01" required value="${p.mrp ?? ''}"></label>
@@ -95,7 +147,10 @@ function productForm(p = {}) {
     <label class="f full">Search tags (comma separated)<input name="tags" value="${esc(p.tags || '')}" placeholder="arduino,robot,beginner"></label>
     <div class="full"><div class="f">Bulk price tiers</div><div id="tiers" class="stack" style="margin-top:6px">${[...tiers, {}, {}].slice(0, Math.max(3, tiers.length + 1)).map((t) => `<div class="row" style="flex-wrap:nowrap"><input type="number" placeholder="Min qty" data-tq value="${t.min_qty ?? ''}"><input type="number" step="0.01" placeholder="Unit price ₹" data-tp value="${t.price ?? ''}"></div>`).join('')}</div></div>
     <label class="f full">Specifications (one per line, “Key: Value”)<textarea name="specs" rows="4">${esc(Object.entries(specs).map(([k, v]) => `${k}: ${v}`).join('\n'))}</textarea></label>
-    <label class="f full">Description<textarea name="description" rows="3">${esc(p.description || '')}</textarea></label>
+    <label class="f full">Short description <span class="muted">(shown under the product name)</span><textarea name="short_description" rows="2" maxlength="600">${esc(p.short_description || '')}</textarea></label>
+    <label class="f full">Highlights <span class="muted">(one per line)</span><textarea name="highlights" rows="4">${esc(jsonList(p.highlights).join('\n'))}</textarea></label>
+    <label class="f full">Description<textarea name="description" rows="4">${esc(p.description || '')}</textarea></label>
+    <label class="f full">What's in the box <span class="muted">(one per line)</span><textarea name="in_box" rows="2">${esc(jsonList(p.in_box).join('\n'))}</textarea></label>
     <div id="margin" class="full small muted"></div>
     <label class="check"><input type="checkbox" name="active" ${p.active === 0 ? '' : 'checked'}> Visible in store</label>
     <div class="full row"><button class="btn primary">${p.id ? 'Save changes' : 'Create product'}</button></div></form>`;
@@ -129,7 +184,7 @@ async function products(el, params) {
   const byId = (id) => rows.find((p) => p.id === Number(id));
   const edit = (p) => {
     const m = modal(`<h2>${p ? 'Edit product' : 'New product'}</h2>${productForm(p || {})}`, { wide: true });
-    const form = $('#pf', m.el); wireMargin(form);
+    const form = $('#pf', m.el); wireMargin(form); const photos = wirePhotos(m, p); wireAiFill(m, form);
     const skuIn = form.elements.sku; let skuTouched = !!p;
     skuIn.addEventListener('input', () => { skuTouched = true; });
     const genSku = async () => { if (!form.elements.category_id.value) return; skuIn.value = (await api(`${B}/sku-next?category_id=${form.elements.category_id.value}`)).sku; };
@@ -139,7 +194,12 @@ async function products(el, params) {
     $('#scan-bc', m.el).onclick = () => scanWithCamera((code) => { form.elements.barcode.value = code; }, { continuous: false, title: 'Scan the manufacturer barcode' });
     form.onsubmit = async (e) => {
       e.preventDefault();
-      try { await api(p ? `${B}/products/${p.id}` : `${B}/products`, { method: p ? 'PUT' : 'POST', body: readProductForm(form) }); toast(p ? 'Product saved' : 'Product created'); m.close(); clearNew(params); products(el, params); } catch (err) { toast(err.message, 'err'); }
+      const btn = $('button.primary', form); btn.disabled = true;
+      try {
+        const saved = await api(p ? `${B}/products/${p.id}` : `${B}/products`, { method: p ? 'PUT' : 'POST', body: readProductForm(form) });
+        if (!p) await photos.uploadQueued(saved.id);
+        toast(p ? 'Product saved' : 'Product created'); m.close(); clearNew(params); products(el, params);
+      } catch (err) { toast(err.message, 'err'); btn.disabled = false; }
     };
   };
   $('#new').onclick = () => edit(null);
@@ -391,13 +451,16 @@ async function serviceJob(id, reload) {
   const m = modal(`<div class="row between"><div><h2 style="margin:0">${SVC_ICON[r.service] || ''} ${esc(r.req_no)}</h2><div class="small muted">${esc(r.title)} · ${dt(r.created_at)}</div></div><span class="badge ${SVC_COLOR[r.status]}">${SVC_LABEL[r.status]}</span></div>
     <div class="grid g2" style="margin-top:12px">
       <div class="card flat"><b>Customer</b><div>${esc(r.name)} · <a class="link" href="tel:${esc(r.phone)}">${esc(r.phone)}</a></div>${r.email ? `<div class="small muted">${esc(r.email)}</div>` : ''}${r.notes ? `<div class="small" style="margin-top:6px">📝 ${esc(r.notes)}</div>` : ''}</div>
-      <div class="card flat"><b>Specification</b><div class="small">Quantity: ${r.quantity}<br>${Object.entries(r.specs).filter(([k]) => k !== 'gerber' && k !== 'model').map(([k, v]) => `${esc(k.replace(/_/g, ' '))}: <b>${esc(typeof v === 'boolean' ? (v ? 'yes' : 'no') : v)}</b>`).join('<br>')}</div></div>
+      <div class="card flat"><b>Specification</b><div class="small">Quantity: ${r.quantity}<br>${Object.entries(r.specs).filter(([k]) => !['gerber', 'model', 'drawing'].includes(k)).map(([k, v]) => `${esc(k.replace(/_/g, ' '))}: <b>${esc(typeof v === 'boolean' ? (v ? 'yes' : 'no') : v)}</b>`).join('<br>')}</div></div>
     </div>
     <div class="card flat" style="margin-top:12px"><b>Estimate shown to customer</b>${r.estimate_lines.map((l) => `<div class="row between small"><span>${esc(l.label)}</span><span>${money(l.amount, 2)}</span></div>`).join('')}<div class="row between"><b>Total incl. GST</b><b>${money(r.estimate, 2)}</b></div></div>
     ${r.specs.gerber ? `<div class="card flat" style="margin-top:12px"><div class="row between"><b>Gerber view</b><div class="row"><button type="button" class="chip on" data-gs="top">Top</button><button type="button" class="chip" data-gs="bottom">Bottom</button></div></div>
       <div style="background:#0b1220;border-radius:12px;padding:14px;margin-top:8px;display:grid;place-items:center;min-height:200px"><img id="gimg" alt="Rendered PCB" style="max-width:100%;max-height:360px"></div>
       <div class="small" style="margin-top:6px">Detected: <b>${r.specs.gerber.width_mm} × ${r.specs.gerber.height_mm} mm</b>, ${r.specs.gerber.layers} layers, ${r.specs.gerber.drill_hits} holes, ${r.specs.gerber.files} Gerber files${(r.specs.width_mm !== r.specs.gerber.width_mm || r.specs.height_mm !== r.specs.gerber.height_mm || r.specs.layers !== r.specs.gerber.layers) ? ' — <b style="color:var(--amber)">differs from the ordered spec, check before quoting</b>' : ''}</div>
       ${(r.specs.gerber.warnings || []).map((w) => `<div class="small" style="color:var(--amber)">⚠ ${esc(w)}</div>`).join('')}</div>` : ''}
+    ${r.specs.drawing ? `<div class="card flat" style="margin-top:12px"><b>Drawing (DXF)</b><div class="lz-preview" style="margin-top:8px;min-height:220px;color:#94a3b8"><img id="dxfimg" alt="DXF preview" style="max-width:100%;max-height:320px"></div>
+      <div class="small" style="margin-top:6px">${r.specs.drawing.width_mm} × ${r.specs.drawing.height_mm} mm (file unit ${esc(r.specs.drawing.unit)}) · cut ${r.specs.drawing.cut_length_m} m · ${r.specs.drawing.pierces} pierces · part area ${r.specs.drawing.part_area_cm2} cm²${r.specs.drawing.open_paths ? ` · <b style="color:var(--amber)">${r.specs.drawing.open_paths} open lines</b>` : ''}</div>
+      ${(r.specs.drawing.warnings || []).map((w) => `<div class="small" style="color:var(--amber)">⚠ ${esc(w)}</div>`).join('')}</div>` : ''}
     ${r.specs.model ? `<div class="card flat" style="margin-top:12px"><div class="row between"><b>3D model</b><button type="button" class="btn sm" id="m3load">🧊 Show 3D view</button></div>
       <div class="small" style="margin-top:4px">${esc(r.specs.model.file)}: <b>${r.specs.model.size_mm.join(' × ')} mm</b> · ${r.specs.model.volume_cm3} cm³ · surface ${r.specs.model.area_cm2} cm² · ${Number(r.specs.model.triangles).toLocaleString('en-IN')} triangles · ${r.specs.model.closed === false ? '<b style="color:var(--amber)">not watertight — repair before printing</b>' : 'watertight'}</div>
       ${(r.specs.model.warnings || []).map((w) => `<div class="small" style="color:var(--amber)">⚠ ${esc(w)}</div>`).join('')}
@@ -417,6 +480,7 @@ async function serviceJob(id, reload) {
     };
     $$('[data-gs]', m.el).forEach((b) => { b.onclick = () => showSide(b.dataset.gs); }); showSide('top');
   }
+  if (r.specs.drawing) fetch(`/api${B}/services/${r.id}/dxf`, { headers: { Authorization: `Bearer ${getToken()}` } }).then((x) => (x.ok ? x.blob() : null)).then((b) => { if (b && $('#dxfimg', m.el)) $('#dxfimg', m.el).src = URL.createObjectURL(b); });
   if (r.specs.model) $('#m3load', m.el).onclick = async (e) => {
     const b = e.currentTarget; b.disabled = true; b.innerHTML = '<span class="spinner"></span> Loading…';
     try { const d = await api(`${B}/services/${r.id}/model`); $('#m3s', m.el).classList.remove('hidden'); await mountModel3d($('#m3s', m.el), d.mesh, { colour: r.specs.colour }); b.remove(); } catch (err) { toast(err.message, 'err'); b.disabled = false; b.textContent = '🧊 Show 3D view'; }

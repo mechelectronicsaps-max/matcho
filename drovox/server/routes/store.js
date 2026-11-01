@@ -9,16 +9,19 @@ import { publicPaymentConfig, createRazorpayOrder, razorpayConfigured, verifyRaz
 import { addPoints, dailyCheckin } from '../services/loyalty.js';
 import { buildProject } from '../services/ai.js';
 
+import { parseImages } from '../images.js';
+
 export const store = express.Router();
 export const validDate = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(String(d || '')) ? String(d) : null);
 const sid = (req) => String(req.headers['x-session'] || '').slice(0, 64) || null;
 const logEvent = (req, type, productId, query) =>
   run('INSERT INTO events(session_id, user_id, type, product_id, query) VALUES (?,?,?,?,?)', sid(req), req.user?.id ?? null, type, productId ?? null, query ?? null);
 
+const firstImg = (p) => { if (!p.images) return null; const [k] = parseImages(p.images); return k || null; };
 function card(p) {
   const tiers = parseTiers(p);
   return {
-    id: p.id, sku: p.sku, name: p.name, slug: p.slug, image: p.image, brand: p.brand, category_id: p.category_id,
+    id: p.id, sku: p.sku, name: p.name, slug: p.slug, image: p.image, img: firstImg(p), brand: p.brand, category_id: p.category_id,
     price: p.price, mrp: p.mrp, off_pct: p.mrp > p.price ? Math.round((1 - p.price / p.mrp) * 100) : 0,
     stock: p.stock, low_stock: p.stock > 0 && p.stock <= Math.max(5, p.reorder_level), gst_rate: p.gst_rate,
     best_bulk_price: tiers.length ? tiers[tiers.length - 1].price : null,
@@ -96,7 +99,7 @@ store.get('/products/:slug', (req, res) => {
   const bundleItems = [p, ...together.slice(0, 2)];
   const bundleTotal = bundleItems.reduce((s, x) => s + x.price, 0);
   res.json({
-    ...card(p), description: p.description, specs: JSON.parse(p.specs || '{}'), tags: p.tags.split(',').map((t) => t.trim()).filter(Boolean),
+    ...card(p), images: parseImages(p.images), short_description: p.short_description || '', highlights: JSON.parse(p.highlights || '[]'), in_box: JSON.parse(p.in_box || '[]'), description: p.description, specs: JSON.parse(p.specs || '{}'), tags: p.tags.split(',').map((t) => t.trim()).filter(Boolean),
     hsn: p.hsn, tiers: parseTiers(p), category: { name: p.cat_name, slug: p.cat_slug },
     social: getSetting('engagement').social_proof ? socialProof(p.id) : null,
     bought_together: together.map(card),
