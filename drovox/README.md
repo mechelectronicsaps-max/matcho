@@ -139,6 +139,10 @@ How it works:
 3. **Discount:** an approved partner's discount comes off automatically at checkout, before any coupon. It shows in the cart and on the order, and the GST invoice is calculated on the reduced price.
 4. **Manage:** discounts can be changed or revoked at any time. Every decision is recorded in the audit trail.
 
+## DIY Projects
+- **Store:** the *DIY Projects* tab lists school and maker projects, with filters for category (Robotics, IoT & Smart Home, School Science, Drones…), level and search. Each project page has photos, level, build time, what students learn, the **parts list with live prices and stock**, numbered build steps, an optional YouTube video and code link, and related projects. **Add all parts to cart** (or *Buy kit now*) adds the whole kit; customers can untick parts they already have or change quantities. The home page shows popular projects.
+- **Stockist panel → DIY projects:** create and edit projects — title, category, level, class / audience, build time, summary, up to 5 photos, parts picked from your catalogue (with qty and note), learning points, steps, video and code links, featured / visible. **✨ Add starter projects** adds 10 popular builds (line follower, obstacle avoider, smart dustbin, street light, plant watering, Bluetooth car, ESP32 weather station, fire alarm, home automation, F450 drone) with parts matched to products you already stock — review the parts and add photos. Views and "kits added" are counted for each project.
+
 ## Product photos, AI listings and speed
 - **Photos:** Stockist panel → Products → Edit → *Photos*: add up to 5 (3–5 recommended), reorder with ◀ ▶, delete with ✕; the first is the main photo. The browser resizes each photo to 360 / 900 / 1600 px WebP before upload, so uploads are small and no image library is needed on the server. Photos are served from `/img/p/` with a one-year cache.
 - **Storefront:** cards load the small size lazily; the product page has a gallery with thumbnails, hover zoom, swipe on phones and a full-screen viewer.
