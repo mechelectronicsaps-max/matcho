@@ -44,14 +44,21 @@ export function createApp() {
   return app;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+/** Seeds on first run, starts background jobs and listens. Used by `npm start` and by app.js (cPanel / Passenger). */
+export function start() {
+  const [maj, min] = process.versions.node.split('.').map(Number);
+  if (maj < 22 || (maj === 22 && min < 13)) {
+    console.error(`Drovox needs Node.js 22.13 or newer (this is ${process.versions.node}). Pick a newer version in your hosting's Node.js app settings.`);
+    process.exit(1);
+  }
   seed();
-  startScheduler();
-  const port = Number(process.env.PORT) || 3000;
-  createApp().listen(port, () => {
-    console.log(`Drovox running on http://localhost:${port}`);
-    console.log(`  Storefront      http://localhost:${port}/`);
-    console.log(`  Stockist panel  http://localhost:${port}/stockist   (stockist@drovox.in / stock123)`);
-    console.log(`  Master panel    http://localhost:${port}/master     (admin@drovox.in / admin123)`);
+  // On shared hosting the app sleeps when idle, so jobs run from cron instead (server/run-jobs.js).
+  if (process.env.DROVOX_CRON_JOBS !== '1') startScheduler();
+  const port = process.env.PORT || 3000; // Passenger passes its own PORT value
+  return createApp().listen(port, () => {
+    console.log(`Drovox running on port ${port}`);
+    console.log('  Storefront /   ·   Stockist panel /stockist   ·   Master panel /master');
   });
 }
+
+if (import.meta.url === `file://${process.argv[1]}`) start();

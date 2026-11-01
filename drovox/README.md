@@ -97,6 +97,33 @@ Without these keys the site still works end to end: payments run in test mode, W
 
 Environment variables: `PORT` (default 3000), `DROVOX_SECRET` (session signing key; generated and stored if not set), `DROVOX_DATA_DIR` (database folder), `ANTHROPIC_API_KEY`.
 
+## Deploying on Linux shared hosting (cPanel / hPanel)
+
+1. **Check Node.js support.** In cPanel, look for **Setup Node.js App**. On Hostinger it's hPanel → Advanced → Node.js. You need **Node.js 22.13 or newer** in its version list. If there's no Node.js option at all, or only older versions, see "No Node.js?" below.
+2. **Upload the code.** Zip the `drovox` folder **without** `node_modules` and `data`, then upload it to your home directory (e.g. `/home/USER/drovox`, *not* inside `public_html`) with File Manager and extract it. Or use `git clone` if your host offers Git/SSH.
+3. **Create the app** in Setup Node.js App:
+   - Node.js version: 22.x (22.13+)
+   - Application mode: Production
+   - Application root: `drovox`
+   - Application URL: your domain (or a subdomain such as `shop.yourdomain.com`)
+   - Application startup file: `app.js`
+   - Environment variables: `DROVOX_CRON_JOBS=1`, `DROVOX_SECRET=<a long random string>`, and optionally `ANTHROPIC_API_KEY`
+4. Click **Run NPM Install**, then **Restart**. Open your domain. The first start creates the database and demo data in `drovox/data/`.
+5. **Add a cron job** (cPanel → Cron Jobs, every 10 minutes) so the automations run even when the site is idle. cPanel's Node.js page shows the path to `node` in its "enter the virtual environment" command (`/home/USER/nodevenv/drovox/22/bin`):
+   ```
+   */10 * * * * cd /home/USER/drovox && /home/USER/nodevenv/drovox/22/bin/node --no-warnings server/run-jobs.js >> data/jobs.log 2>&1
+   ```
+6. Turn on **SSL** (AutoSSL / Let's Encrypt) for the domain, then in Master → Settings → Store set the public URL to `https://yourdomain`.
+7. **Secure it.** Log in at `/master`, create your own admin account in Users & roles, and disable the demo accounts (or reset their passwords).
+8. **Backups:** download `drovox/data/drovox.db` regularly, or include it in your host's backup.
+
+After code updates, upload the changed files and press **Restart** in Setup Node.js App.
+
+**No Node.js?** PHP-only shared hosting can't run this app. Options, cheapest first:
+- Ask your host to enable Node.js, or upgrade to a plan that has it.
+- Get a small **VPS** (1 GB RAM, about ₹400–800/month, e.g. Hostinger KVM 1, DigitalOcean or AWS Lightsail in Mumbai). Run `npm install && npm start` behind Nginx with PM2. Keep your domain on the current host and point an A record at the VPS.
+- Or use a Node.js platform such as Render or Railway with a persistent disk for `data/`.
+
 ## Project layout
 
 ```
