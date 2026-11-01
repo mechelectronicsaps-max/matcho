@@ -5,3 +5,4 @@ app.gradle.properties
 *.jks
 keystore.properties
 android/app/google-services.json
+www/app-config.js

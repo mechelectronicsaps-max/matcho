@@ -57,20 +57,11 @@ Go to the repository → **Settings → Secrets and variables → Actions → Ne
 - **Test APK:** every push that changes `drovox/mobile` builds one. Go to **Actions → Drovox Android app → the latest run → Artifacts**, download it, copy the `.apk` to an Android phone and install it (allow "install unknown apps").
 - **Play Store build:** go to **Actions → Drovox Android app → Run workflow** (keep *Signed release* ticked). The artifact contains `app-release.aab` (for Play) and a signed `app-release.apk`.
 
-The version code is the workflow run number, so each build is accepted by Play. Change `versionName` in `app.config.json` for each release.
+The version code is the workflow run number, so each build is accepted by Play. Change `versionName` in `app.config.json` for each release (for builds from Android Studio, also raise `versionCode`).
 
-### Build on your laptop instead (optional)
+### Build on your laptop with Android Studio
 
-Install **Android Studio**, then:
-
-```bash
-cd drovox/mobile
-npm install
-npm run sync
-npm run open:android
-```
-
-In Android Studio press ▶ to run on a phone or emulator. To test against your laptop server on the same Wi-Fi, run `DROVOX_URL=http://192.168.x.x:3000 npm run sync` (testing only — release builds must use https).
+Step-by-step for Windows: **[ANDROID-STUDIO.md](ANDROID-STUDIO.md)**. In short: `npm install`, then `npm run sync -- http://10.0.2.2:3000` (emulator) or `npm run sync` (live site), then `npm run open`, then press ▶.
 
 ## 6. Google Play
 

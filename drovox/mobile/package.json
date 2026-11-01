@@ -5,10 +5,8 @@
   "description": "Drovox Android / iOS app (Capacitor shell around the live store, with native push, back button, share and app links)",
   "scripts": {
     "configure": "node scripts/configure.mjs",
-    "sync": "node scripts/configure.mjs && npx cap sync android",
-    "open:android": "npx cap open android",
-    "build:debug": "npm run sync && cd android && ./gradlew assembleDebug",
-    "build:release": "npm run sync && cd android && ./gradlew bundleRelease assembleRelease"
+    "sync": "node scripts/sync.mjs",
+    "open": "npx cap open android"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",

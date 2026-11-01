@@ -3,6 +3,7 @@
   "appId": "in.drovox.app",
   "appName": "Drovox",
   "versionName": "1.0.0",
+  "versionCode": 1,
   "themeColor": "#13203A",
   "brandColor": "#F25C05"
 }

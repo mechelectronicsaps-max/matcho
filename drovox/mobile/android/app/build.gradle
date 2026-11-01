@@ -7,7 +7,8 @@ def drovoxPropsFile = rootProject.file('../app.gradle.properties')
 if (drovoxPropsFile.exists()) drovoxPropsFile.withInputStream { drovoxProps.load(it) }
 def drovoxHost = drovoxProps.getProperty('drovoxHost', 'drovox.in')
 def drovoxVersionName = drovoxProps.getProperty('drovoxVersionName', '1.0.0')
-def drovoxVersionCode = (System.getenv('DROVOX_VERSION_CODE') ?: '1') as Integer
+def drovoxCleartext = drovoxProps.getProperty('drovoxCleartext', 'false')
+def drovoxVersionCode = (System.getenv('DROVOX_VERSION_CODE') ?: drovoxProps.getProperty('drovoxVersionCode', '1')) as Integer
 def keystoreFile = System.getenv('DROVOX_KEYSTORE_FILE')
 
 android {
@@ -19,7 +20,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode drovoxVersionCode
         versionName drovoxVersionName
-        manifestPlaceholders = [drovoxHost: drovoxHost]
+        manifestPlaceholders = [drovoxHost: drovoxHost, drovoxCleartext: drovoxCleartext]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
