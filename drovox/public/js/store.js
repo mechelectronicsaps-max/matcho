@@ -701,6 +701,7 @@ async function route() {
       case 'blog': await pageBlog(parts[1]); break;
       case 'careers': await pageCareers(); break;
       case 'support': pageSupport(); break;
+      case 'policy': pagePolicy(parts[1]); break;
       case 'login': pageAuth('login', params); break;
       case 'register': pageAuth('register', params); break;
       case 'account': await pageAccount(); break;
@@ -709,6 +710,47 @@ async function route() {
   } catch (e) {
     app.innerHTML = `<div class="empty card"><div class="big">⚠️</div><h2>${esc(e.message)}</h2><a class="btn primary" href="#/">Go home</a></div>`;
   }
+}
+
+const APPLE = '<svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M16.4 12.6c0-2.4 2-3.5 2-3.6-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.2-2.8.8-3.5.8s-1.8-.8-3-.8C6.9 7.3 5.4 8.2 4.6 9.7c-1.7 2.9-.4 7.2 1.2 9.6.8 1.2 1.7 2.4 3 2.4 1.2 0 1.6-.8 3.1-.8s1.8.8 3.1.8c1.3 0 2.1-1.2 2.9-2.3.9-1.3 1.3-2.6 1.3-2.7 0 0-2.8-1-2.8-4.1zM14.1 5.5c.6-.8 1.1-1.9 1-3-1 0-2.1.6-2.8 1.4-.6.7-1.2 1.8-1 2.9 1.1.1 2.1-.5 2.8-1.3z"/></svg>';
+const PLAY = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 2.6 14.2 12 4 21.4c-.4-.2-.6-.6-.6-1.1V3.7c0-.5.2-.9.6-1.1z" fill="#34a853"/><path d="m17.6 8.9-3.4 3.1L4 2.6c.2-.1.5-.1.8 0l12.8 6.3z" fill="#fbbc04"/><path d="M17.6 15.1 4.8 21.4c-.3.1-.6.1-.8 0L14.2 12l3.4 3.1z" fill="#ea4335"/><path d="m21 12c0 .5-.3.9-.8 1.2l-2.6 1.9-3.4-3.1 3.4-3.1 2.6 1.9c.5.3.8.7.8 1.2z" fill="#4285f4"/></svg>';
+function appBadges(site) {
+  const one = (url, icon, top, name, label) => (url
+    ? `<a class="app-badge" href="${esc(url)}" target="_blank" rel="noopener" aria-label="${label}">${icon}<span><small>${top}</small><b>${name}</b></span></a>`
+    : `<a class="app-badge soon" aria-disabled="true" title="Coming soon">${icon}<span><small>Coming soon on</small><b>${name}</b></span></a>`);
+  return one(site.app_ios_url, APPLE, 'Download on the', 'App Store', 'Download the Drovox iOS app') + one(site.app_android_url, PLAY, 'GET IT ON', 'Google Play', 'Get the Drovox Android app');
+}
+
+function pagePolicy(slug) {
+  const st = S.cfg.store || {}; const site = S.site.site || {}; const name = st.name || 'Drovox';
+  const contact = `${esc(st.support_email || '')}${st.support_phone ? ` · ${esc(st.support_phone)}` : ''}`;
+  const P = {
+    privacy: ['Privacy policy', `<p>${esc(name)} collects only the details needed to process your orders and service requests: name, phone/WhatsApp number, email, delivery and billing address, GSTIN (if given) and order history. Optional details such as birthday are used only for greetings and offers.</p>
+      <h3>How we use your data</h3><ul><li>To process, ship and support your orders and service requests.</li><li>To send order and delivery updates on WhatsApp, SMS or email.</li><li>To issue GST invoices and meet legal obligations.</li><li>To send offers, only if you have not opted out.</li></ul>
+      <h3>Payments</h3><p>Card, UPI and net-banking payments are processed by our payment gateway. We never see or store your card details.</p>
+      <h3>Sharing</h3><p>We share data only with courier partners (to deliver), the payment gateway and messaging providers (to notify you). We never sell your data.</p>
+      <h3>Your choices</h3><p>You can ask us to correct or delete your data, or stop marketing messages, at any time: ${contact}.</p>`],
+    terms: ['Terms & conditions', `<p>By using this website and placing an order with ${esc(name)} you agree to these terms.</p><ul>
+      <li>Prices are in Indian rupees and include GST unless shown otherwise. Prices and stock can change without notice.</li>
+      <li>An order is confirmed once payment is received, or once it is accepted for cash on delivery.</li>
+      <li>Products are sold for development, education and prototyping. Follow the datasheet and safety rules — especially for lithium batteries, high voltage and mains-powered projects.</li>
+      <li>Service estimates (PCB, 3D printing, laser cutting, battery packs) are indicative. The final price is confirmed after we check your files, and production starts after you approve it. Custom-made items cannot be cancelled once production starts.</li>
+      <li>Reward points and coupons have no cash value and may expire.</li>
+      <li>Disputes are subject to the jurisdiction of the courts where ${esc(name)} is registered.</li></ul>`],
+    shipping: ['Shipping policy', `<ul><li>In-stock orders are dispatched within ${esc(site.dispatch_days || '1–2 business days')}. Service orders ship when production is complete.</li>
+      <li>We ship across India through our courier partners. Delivery usually takes 2–7 days depending on your PIN code.</li>
+      <li>Free shipping applies above the amount shown in the top bar; otherwise shipping is calculated at checkout.</li>
+      <li>You get the tracking link on WhatsApp, and can follow your order on the <a class="link" href="#/track">Track order</a> page.</li>
+      <li>Lithium batteries and packs above 100 Wh go by surface transport only.</li></ul>`],
+    returns: ['Returns & refunds', `<ul><li>Report a damaged, wrong or dead-on-arrival product within ${esc(site.return_days ?? 7)} days of delivery, with photos or an unboxing video.</li>
+      <li>Items must be unused, unsoldered and in the original packing. Soldered, modified, burnt or physically damaged parts cannot be returned.</li>
+      <li>Custom services (PCBs, 3D prints, laser-cut parts, battery packs) are made to your design and can be returned only if they do not match the approved specification.</li>
+      <li>Approved refunds go back to the original payment method within 5–7 business days. Cash-on-delivery orders are refunded by bank transfer or UPI.</li>
+      <li>To start a return, contact ${contact} with your order number.</li></ul>`],
+  };
+  const [title, body] = P[slug] || P.terms;
+  setTitle(title);
+  app.innerHTML = `<div class="card prose" style="max-width:860px;margin:0 auto"><h1>${title}</h1>${body}<p class="small muted">Questions? <a class="link" href="#/support">Contact support</a>.</p></div>`;
 }
 
 (async function boot() {
@@ -723,6 +765,9 @@ async function route() {
   if (!S.site.has_jobs) $('#nav-careers')?.remove();
   $('#allcats-btn').onclick = (e) => { e.stopPropagation(); const m = $('#allcats-menu'); m.classList.toggle('hidden'); $('#allcats-btn').setAttribute('aria-expanded', String(!m.classList.contains('hidden'))); };
   document.addEventListener('click', (e) => { if (!e.target.closest('.allcats')) $('#allcats-menu')?.classList.add('hidden'); });
+  $('#ft-social').innerHTML = $('#tb-social').innerHTML;
+  $('#ft-year').textContent = new Date().getFullYear();
+  $('#ft-apps').innerHTML = appBadges(site);
   $('#ft-contact').innerHTML = `${esc(S.cfg.store.support_phone)}<br>${esc(S.cfg.store.support_email)}<br>${esc(S.cfg.store.address)}`;
   await loadMe(); renderCartCount(); syncCart();
   window.addEventListener('hashchange', route); route(); exitIntent();

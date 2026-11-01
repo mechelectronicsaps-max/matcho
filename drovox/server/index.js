@@ -42,7 +42,7 @@ export function createApp() {
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
   // Label printing and scanning libraries, served locally so they work offline.
-  const vendor = { 'jsbarcode.js': 'jsbarcode/dist/JsBarcode.all.min.js', 'qrcode.js': 'qrcode-generator/dist/qrcode.js', 'html5-qrcode.js': 'html5-qrcode/html5-qrcode.min.js' };
+  const vendor = { 'jsbarcode.js': 'jsbarcode/dist/JsBarcode.all.min.js', 'qrcode.js': 'qrcode-generator/dist/qrcode.js', 'html5-qrcode.js': 'html5-qrcode/html5-qrcode.min.js', 'three.js': 'three/build/three.module.min.js' };
   for (const [name, file] of Object.entries(vendor)) app.get(`/vendor/${name}`, (_req, res) => res.sendFile(path.join(here, '..', 'node_modules', file), { headers: { 'Cache-Control': 'no-cache' } }));
   // no-cache = the browser must check with the server (cheap ETag check) before reusing a file,
   // so updated pages and scripts are picked up immediately after an upgrade.

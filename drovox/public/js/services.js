@@ -1,5 +1,6 @@
 // Storefront: fabrication services (3D printing, PCB, laser & acrylic cutting, battery packs) and the partner program.
 import { $, $$, api, esc, money, toast, formData, badge } from './common.js';
+import { tintSvg, svgUrl, mountPcb3d } from './pcb3d.js';
 
 const STATUS_LABEL = { new: 'Received', quoted: 'Quote sent', approved: 'Approved', in_production: 'In production', ready: 'Ready', delivered: 'Delivered', cancelled: 'Cancelled' };
 const STATUS_COLOR = { new: 'pending_payment', quoted: 'confirmed', approved: 'packed', in_production: 'shipped', ready: 'delivered', delivered: 'delivered', cancelled: 'cancelled' };
@@ -34,8 +35,8 @@ const F = {
   pcb: [
     { name: 'material', label: 'Base material', type: 'select', options: [['fr4', 'FR-4 (TG130–140)'], ['aluminium', 'Aluminium (1-layer, LED)']] },
     { name: 'layers', label: 'Layers', type: 'select', options: [['2', '2 layers'], ['1', '1 layer'], ['4', '4 layers'], ['6', '6 layers']] },
-    { name: 'width_mm', label: 'Width (mm)', type: 'number', value: 100, min: 5 },
-    { name: 'height_mm', label: 'Height (mm)', type: 'number', value: 100, min: 5 },
+    { name: 'width_mm', label: 'Length (mm) — from Gerber', type: 'number', value: '', min: 5 },
+    { name: 'height_mm', label: 'Width (mm) — from Gerber', type: 'number', value: '', min: 5 },
     { name: 'quantity', label: 'PCB quantity', type: 'select', options: [5, 10, 15, 20, 25, 30, 50, 75, 100, 150, 200, 250, 300, 400, 500, 1000].map((n) => [String(n), String(n)]) },
     { name: 'designs', label: 'Different designs', type: 'select', options: [1, 2, 3, 4, 5, 6, 8, 10].map((n) => [String(n), String(n)]) },
     { name: 'delivery', label: 'Delivery format', type: 'select', options: [['single', 'Single PCB'], ['panel_customer', 'Panel by customer'], ['panel_drovox', 'Panel by Drovox']] },
@@ -85,8 +86,12 @@ const F = {
   ],
 };
 
-function field(f) {
+const SWATCH = { green: '#1f8a3a', red: '#d0222b', yellow: '#f2cc16', blue: '#1d5fd1', white: '#f4f4f4', black: '#111', purple: '#6a32a8', matte_black: '#333', matte_green: '#2d5e3a' };
+function field(f, chips) {
   const id = `f-${f.name}`;
+  // Robu/JLCPCB-style option buttons: the select stays (hidden) as the form value, buttons drive it
+  if (chips && f.type === 'select' && f.options.length <= 10) return `<div class="f full opt-row" data-field="${f.name}"><span class="opt-label">${esc(f.label)}</span><div class="opt-chips">${f.options.map(([v, l], i) => `<button type="button" class="chip opt${i ? '' : ' on'}" data-chip="${f.name}" data-val="${esc(v)}">${SWATCH[v] ? `<i class="sw" style="background:${SWATCH[v]}"></i>` : ''}${esc(l)}</button>`).join('')}</div>
+    <select name="${f.name}" id="${id}" hidden>${f.options.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select></div>`;
   if (f.type === 'select') return `<label class="f" data-field="${f.name}">${esc(f.label)}<select name="${f.name}" id="${id}">${f.options.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select></label>`;
   if (f.type === 'check') return `<label class="check full" data-field="${f.name}"><input type="checkbox" name="${f.name}" id="${id}"> ${esc(f.label)}</label>`;
   return `<label class="f" data-field="${f.name}">${esc(f.label)}<input name="${f.name}" id="${id}" type="${f.type === 'number' ? 'number' : 'text'}" ${f.min != null ? `min="${f.min}"` : ''} step="${f.step || (f.type === 'number' ? 'any' : '')}" value="${f.value ?? ''}"></label>`;
@@ -116,11 +121,13 @@ export async function pageServices(app, S, parts, setTitle) {
       <div class="card"><h1 style="margin:0 0 6px">${svc.icon} ${esc(svc.title)}</h1><p class="muted">${esc(svc.blurb)}</p>
         <div class="grid g2" style="margin:10px 0 16px"><div><div class="f">Materials</div><ul class="small" style="margin:6px 0 0;padding-left:18px">${(svc.materials || []).map((m) => `<li>${esc(m)}</li>`).join('')}</ul></div>
           <div><div class="f">Capabilities</div><ul class="small" style="margin:6px 0 0;padding-left:18px">${(svc.features || []).map((m) => `<li>${esc(m)}</li>`).join('')}<li>Usually ready in ${esc(svc.lead)}</li></ul></div></div>
-        <h3>${id === 'pcb' ? '2. PCB specification' : 'Configure & get an instant price'}</h3><div class="form two">${fields.map(field).join('')}</div></div>
+        <h3>${id === 'pcb' ? '2. PCB specification' : 'Configure & get an instant price'}</h3><div class="form two">${fields.map((f) => field(f, id === 'pcb')).join('')}</div></div>
       ${id === 'pcb' ? `<div class="card" id="gcard"><h3>1. Add Gerber file</h3><p class="small muted">Upload a .zip of your Gerber (RS-274X) and drill files from KiCad, EasyEDA, Eagle or Altium. We render the board and fill in its size and layer count automatically. Max 25 MB.</p>
         <label class="btn primary" style="cursor:pointer">⬆ Add Gerber ZIP<input type="file" id="gerber" accept=".zip" hidden></label> <span id="gstat" class="small muted"></span>
-        <div id="gview" class="hidden" style="margin-top:14px"><div class="row" style="margin-bottom:8px"><button type="button" class="chip on" data-side="top">Top</button><button type="button" class="chip" data-side="bottom">Bottom</button><span class="small muted" id="ginfo"></span></div>
-          <div style="background:#0b1220;border-radius:12px;padding:16px;display:grid;place-items:center;min-height:260px"><img id="gimg" alt="Rendered PCB" style="max-width:100%;max-height:420px"></div><div id="gwarn"></div><div class="tiny muted" id="glayers" style="margin-top:6px"></div></div></div>` : ''}
+        <div id="gview" class="hidden" style="margin-top:14px"><div class="row" style="margin-bottom:8px"><button type="button" class="chip on" data-side="top">Top</button><button type="button" class="chip" data-side="bottom">Bottom</button><button type="button" class="chip" data-side="3d">🧊 3D view</button><span class="small muted" id="ginfo"></span></div>
+          <div class="gstage"><img id="gimg" alt="Rendered PCB"><div id="g3d" class="hidden"></div>
+            <div id="g3dctl" class="g3dctl hidden"><button type="button" class="chip" data-view="top">Top</button><button type="button" class="chip" data-view="bottom">Bottom</button><button type="button" class="chip" data-view="iso">Angle</button><button type="button" class="chip" data-view="spin">⟳ Spin</button><span class="tiny">Drag to rotate · scroll to zoom</span></div></div>
+          <div id="gwarn"></div><div class="tiny muted" id="glayers" style="margin-top:6px"></div></div></div>` : ''}
       <div class="card ${id === 'pcb' ? 'hidden' : ''}"><h3>Design files</h3><p class="small muted">Accepted: ${svc.files.map((x) => `.${x}`).join(' ')} · up to 5 files, 20 MB each. ${id === 'battery' ? 'Optional: a photo or datasheet.' : 'Zip several files together if needed.'}</p>
         <input type="file" id="files" multiple accept="${svc.files.map((x) => `.${x}`).join(',')}"><div id="flist" class="small" style="margin-top:6px"></div></div>
       <div class="card"><h3>Your details</h3><div class="form two"><label class="f">Name<input name="name" required value="${esc(S.user?.name || '')}"></label><label class="f">WhatsApp number<input name="phone" required inputmode="tel" value="${esc(S.user?.phone || '')}"></label>
@@ -135,6 +142,7 @@ export async function pageServices(app, S, parts, setTitle) {
   const values = () => { const v = formData(form); for (const f of fields) if (f.type === 'check') v[f.name] = !!v[f.name]; return v; };
   const toggle = () => {
     const v = values();
+    $$('[data-chip]', form).forEach((b) => b.classList.toggle('on', String(v[b.dataset.chip]) === b.dataset.val));
     for (const f of fields) {
       $(`[data-field="${f.name}"]`, form).classList.toggle('hidden', !!f.show && !f.show(v));
       if (f.dyn) {   // options that depend on another choice (e.g. thickness per metal)
@@ -145,8 +153,17 @@ export async function pageServices(app, S, parts, setTitle) {
     }
   };
   let t; let last = null;
+  const zeroPanel = () => {
+    $('#est').innerHTML = `<h3>PCB price summary</h3><div class="summary"><div class="r-line"><span>Calculated price</span><span>${money(0, 2)}</span></div><div class="r-line"><span>GST ${cat.gst_rate}%</span><span>${money(0, 2)}</span></div><div class="r-line total"><span>Estimate</span><span>${money(0, 2)}</span></div></div>
+      <div class="small muted" style="margin-top:10px">⬆ Upload your Gerber ZIP — the price is calculated automatically from your board size and the options you choose.</div>
+      <button class="btn primary lg block" id="send" style="margin-top:14px">Add Gerber to calculate</button>
+      <div class="small" style="margin-top:10px;color:var(--amber)">🚚 Production starts after we check your files. Additional charges may apply for special cases.</div>`;
+    $('#send').onclick = () => { $('#gcard').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('#gerber').click(); };
+  };
   const refresh = () => {
     toggle(); clearTimeout(t);
+    if (id === 'pcb' && !gerberFile) { last = null; zeroPanel(); return; }
+    if (id === 'pcb' && gerber) paint();
     t = setTimeout(async () => {
       try {
         if (!document.body.contains(form)) return;   // user moved to another page
@@ -158,7 +175,6 @@ export async function pageServices(app, S, parts, setTitle) {
           ${info.nominal_v ? `<div class="banner teal" style="margin-top:10px"><div class="small"><b>${info.nominal_v} V · ${info.capacity_ah} Ah · ${info.energy_wh} Wh</b><br>${info.cells} cells · approx. ${info.weight_kg} kg</div></div>` : ''}
           ${info.area_cm2 ? `<div class="small muted" style="margin-top:8px">Board area ${info.area_cm2} cm² · total ${info.total_area_m2} m²${info.weight_kg ? ` · approx. ${info.weight_kg} kg` : ''}</div>` : ''}
           ${info.build_days ? `<div class="small" style="margin-top:6px">🏭 Build time: <b>${esc(info.build_days)}</b></div>` : ''}
-          ${id === 'pcb' && !gerberFile ? '<div class="small" style="margin-top:6px;color:var(--amber)">Upload your Gerber ZIP to order — the price above uses the size you entered.</div>' : ''}
           ${info.note ? `<div class="small" style="margin-top:8px;color:var(--amber)">${esc(info.note)}</div>` : ''}
           <div class="small muted" style="margin-top:8px">⏱ Usually ready in ${esc(last.lead)}. Final price is confirmed after we check your files.</div>
           <button class="btn primary lg block" id="send" style="margin-top:14px">Request final quote</button>`;
@@ -183,9 +199,21 @@ export async function pageServices(app, S, parts, setTitle) {
     } catch (e) { toast(e.message, 'err'); btn.disabled = false; btn.textContent = 'Request final quote'; }
   };
   form.addEventListener('input', refresh); form.addEventListener('change', refresh);
-  // ---- Gerber viewer (PCB)
-  const svgUrl = (svg) => `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
-  $$('[data-side]', form).forEach((b) => { b.onclick = () => { if (!gerber) return; $$('[data-side]', form).forEach((x) => x.classList.toggle('on', x === b)); $('#gimg').src = svgUrl(b.dataset.side === 'bottom' ? gerber.bottom_svg : gerber.top_svg); }; });
+  $$('[data-chip]', form).forEach((b) => { b.onclick = () => { const sel = form.elements[b.dataset.chip]; sel.value = b.dataset.val; sel.dispatchEvent(new Event('change', { bubbles: true })); }; });
+  // ---- Gerber viewer (PCB): 2D top/bottom in the chosen mask colour + 3D board
+  let side = 'top'; let viewer3d = null; let painted = '';
+  const look = () => { const v = values(); return { colour: v.colour, finish: v.finish, thickness: v.thickness }; };
+  function paint() {
+    const key = JSON.stringify([look(), side, gerber && gerber.width_mm]); if (key === painted) return; painted = key;
+    const is3d = side === '3d';
+    $('#gimg').classList.toggle('hidden', is3d); $('#g3d').classList.toggle('hidden', !is3d); $('#g3dctl').classList.toggle('hidden', !is3d);
+    if (!is3d) { $('#gimg').src = svgUrl(tintSvg(side === 'bottom' ? gerber.bottom_svg : gerber.top_svg, look())); return; }
+    if (viewer3d) { viewer3d.update(look()); return; }
+    $('#g3d').innerHTML = '<div class="small muted" style="padding:20px"><span class="spinner"></span> Building 3D board…</div>';
+    mountPcb3d($('#g3d'), gerber, look()).then((v) => { viewer3d = v; }).catch(() => { $('#g3d').innerHTML = '<div class="small muted" style="padding:20px">3D view needs WebGL — it is not available in this browser.</div>'; });
+  }
+  $$('[data-side]', form).forEach((b) => { b.onclick = () => { if (!gerber) return; side = b.dataset.side; $$('[data-side]', form).forEach((x) => x.classList.toggle('on', x === b)); paint(); }; });
+  $$('[data-view]', form).forEach((b) => { b.onclick = () => { if (!viewer3d) return; if (b.dataset.view === 'spin') viewer3d.spin(); else viewer3d.view(b.dataset.view); }; });
   $('#gerber')?.addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
     if (f.size > 25 * 1024 * 1024) return toast('Gerber ZIP must be under 25 MB', 'err');
@@ -195,9 +223,11 @@ export async function pageServices(app, S, parts, setTitle) {
       gerber = await api('/services/pcb/gerber', { method: 'POST', body: { name: f.name, data } });
       gerberFile = { name: f.name, data };
       form.elements.width_mm.value = gerber.width_mm; form.elements.height_mm.value = gerber.height_mm; form.elements.layers.value = String(gerber.layers);
+      if (gerber.layers !== 1 && form.elements.material.value === 'aluminium') form.elements.material.value = 'fr4';
       $('#gstat').innerHTML = `✅ <b>${esc(f.name)}</b>`;
       $('#ginfo').innerHTML = `<b>${gerber.width_mm} × ${gerber.height_mm} mm</b> · ${gerber.layers} layer${gerber.layers > 1 ? 's' : ''}${gerber.drill_hits ? ` · ${gerber.drill_hits} holes` : ''}`;
-      $('#gimg').src = svgUrl(gerber.top_svg); $('#gview').classList.remove('hidden');
+      viewer3d?.destroy(); viewer3d = null; painted = ''; $('#g3d').innerHTML = '';
+      $('#gview').classList.remove('hidden');
       $('#gwarn').innerHTML = gerber.warnings.map((w) => `<div class="small" style="color:var(--amber);margin-top:6px">⚠ ${esc(w)}</div>`).join('');
       $('#glayers').textContent = `Layers found: ${gerber.files.map((x) => `${x.side !== 'all' ? x.side + ' ' : ''}${x.type}`).join(', ')}`;
       refresh();

@@ -419,6 +419,8 @@ export const DEFAULT_SETTINGS = {
     facebook_url: '', x_url: '', linkedin_url: '', instagram_url: '', youtube_url: '',
     google_reviews_url: '', reviews_title: 'Backed trust in every order',
     show_services_on_home: true, banner_seconds: 5,
+    app_ios_url: '', app_android_url: '',            // App Store / Google Play links (badges show 'coming soon' when empty)
+    return_days: 7, dispatch_days: '1–2 business days',
   },
   partners: {
     enabled: true,

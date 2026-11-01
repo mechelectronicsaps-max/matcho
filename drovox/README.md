@@ -102,6 +102,9 @@ Each service page lists its materials and capabilities. A battery pack can be bu
 - **Upload Gerber ZIP first.** The server unzips it, detects each layer, measures the board outline and renders **Top / Bottom** views right on the page. Width, height and layer count are filled in automatically, with warnings (no outline, no drill file, odd layer count).
 - **All options priced automatically:** base material FR-4 or aluminium (1-layer), 1/2/4/6 layers, quantity, different designs, delivery format (single / panel by customer / panel by Drovox), thickness 0.4–2.0 mm, mask colour (incl. matte), HASL / lead-free HASL / ENIG, 1 or 2 oz copper, via covering (tented / untented / plugged), minimum hole, gold fingers, castellated holes, impedance control (4+ layers), remove order number, stencil, assembly, standard or express build. The estimate shows the price with GST, build days and board weight.
 - An order cannot be placed without the Gerber ZIP (max 25 MB).
+- The price summary shows ₹0 until a Gerber is uploaded; then it is calculated automatically.
+- **Viewer:** Top / Bottom views in the chosen mask colour and finish (ENIG shows gold), plus a **3D view** (drag to rotate, scroll to zoom) with the real board outline and thickness. Loose or out-of-order outline segments are joined automatically; if the outline is not closed, the full rectangle is shown with a warning.
+- Options are shown as buttons (like robu.in / JLCPCB) instead of drop-downs.
 - Default rates are placeholders. Set your real rates in **Master → Settings → Services**.
 - **Stockist panel → Service jobs** has a separate tab for each service (3D printing, metal laser, battery, laser cutting, PCB…), with open-job counts, plus status tabs. The PCB job shows the Gerber Top/Bottom view and flags any mismatch between the detected and ordered size or layers.
 
@@ -119,6 +122,9 @@ How it works:
 2. **Approve:** in Master → **Partners**, approve or reject it and set the discount. Defaults are in Settings → Partners: reseller 10%, institution 8%, makerspace 8%, integrator 7%, affiliate 5%. The partner is told on WhatsApp.
 3. **Discount:** an approved partner's discount comes off automatically at checkout, before any coupon. It shows in the cart and on the order, and the GST invoice is calculated on the reduced price.
 4. **Manage:** discounts can be changed or revoked at any time. Every decision is recorded in the audit trail.
+
+## Footer, app badges and policies
+The footer has Shop, Services, Help, Policies and Contact columns, social links, accepted payments and **App Store / Google Play** badges. Add the app links in **Master → Settings → Website** (`iOS app`, `Android app`); until then the badges say "Coming soon". Privacy, Terms, Shipping and Returns pages are at `#/policy/privacy|terms|shipping|returns` (payment gateways such as Razorpay ask for these). Return window and dispatch time come from the same settings tab — review the wording with your advisor before going live.
 
 ## Customer data & greetings
 

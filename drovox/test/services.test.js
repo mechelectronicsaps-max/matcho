@@ -138,3 +138,15 @@ test('PCB: Gerber ZIP is rendered, measured and required for orders', async () =
   const svg = await api('GET', `/api/stock/services/${job.id}/gerber/top`, null, st);
   assert.equal(svg.status, 200); assert.match(svg.data, /<svg/);
 });
+
+test('loose, unordered outline segments are joined into one closed board shape', async () => {
+  const { fixOutline } = await import('../server/services/gerber.js');
+  const svg = '<svg viewBox="0 0 50000 30000" width="50mm"><defs><clipPath id="X_top_outline"><path d="M 0 0 50000 0 M 50000 30000 50000 5 M 0 30000 50000 30000 M 0 0 0 30000" fill="none"/></clipPath></defs></svg>';
+  const f = fixOutline(svg, 50);
+  assert.match(f.apply(svg), /<clipPath id="X_top_outline"><path d="M 0 0 L 50000 0 L 50000 30000 L 0 30000 L 0 0 Z"\/>/);
+  assert.equal(f.note, '');
+  assert.deepEqual(f.polygon[2], [50, 30]);
+  const open = fixOutline(svg.replace('M 0 0 0 30000', ''), 50);
+  assert.match(open.note, /not a closed shape/);
+  assert.match(open.apply(svg), /<rect x="0" y="0" width="50000" height="30000"\/>/);
+});

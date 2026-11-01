@@ -1,6 +1,7 @@
 // OPTIONAL demo data: a sample catalogue, demo staff/customers and ~45 days of orders, for trying the system.
 // The live system starts empty; this only runs when you ask for it (`npm run demo`, on an empty catalogue)
 // and is used by the automated tests. Never run it on your real shop database.
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { all, get, run, DB_FILE, getSetting, setSetting } from './db.js';
 import { addStarterCategories } from './catalog.js';
@@ -216,6 +217,6 @@ export function seed() {
   return true;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   if (seed() === false) console.log(`The catalogue already has products (${DB_FILE}); demo data was not added.`);
 }
