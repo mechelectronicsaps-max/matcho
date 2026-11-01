@@ -1,5 +1,6 @@
 // Drovox server: storefront (/), stockist panel (/stockist), master panel (/master) and the JSON API (/api).
 import express from 'express';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { attachUser } from './auth.js';
@@ -10,6 +11,7 @@ import { startScheduler } from './services/jobs.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(here, '..', 'public');
+const BUILD = Date.now().toString(36);
 
 export function createApp() {
   const app = express();
@@ -33,10 +35,17 @@ export function createApp() {
   for (const [name, file] of Object.entries(vendor)) app.get(`/vendor/${name}`, (_req, res) => res.sendFile(path.join(here, '..', 'node_modules', file), { headers: { 'Cache-Control': 'no-cache' } }));
   // no-cache = the browser must check with the server (cheap ETag check) before reusing a file,
   // so updated pages and scripts are picked up immediately after an upgrade.
-  app.use(express.static(PUBLIC, { extensions: ['html'], setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
-  app.get('/stockist', (_req, res) => res.sendFile(path.join(PUBLIC, 'stockist.html')));
-  app.get('/master', (_req, res) => res.sendFile(path.join(PUBLIC, 'master.html')));
-  app.get('/', (_req, res) => res.sendFile(path.join(PUBLIC, 'index.html')));
+  // Pages load their scripts and styles from /v/<build>/…, a new address every time the server starts,
+  // so a browser can never keep running an outdated copy after an update.
+  const page = (file) => (_req, res) => {
+    const html = fs.readFileSync(path.join(PUBLIC, file), 'utf8')
+      .replace(/(src|href)="\/(js|css)\//g, `$1="/v/${BUILD}/$2/`);
+    res.set('Cache-Control', 'no-store').type('html').send(html);
+  };
+  for (const [route, file] of [['/', 'index.html'], ['/index.html', 'index.html'], ['/stockist', 'stockist.html'], ['/stockist.html', 'stockist.html'], ['/master', 'master.html'], ['/master.html', 'master.html']]) app.get(route, page(file));
+  app.use('/v/:build', express.static(PUBLIC, { maxAge: '30d', immutable: true }));
+  app.use(express.static(PUBLIC, { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
+
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, _req, res, _next) => {

@@ -32,6 +32,7 @@ Requires Node.js 22.13+ (uses the built-in `node:sqlite`, no database server nee
 |---|---|
 | `npm start` | Runs the shop |
 | `npm test` | Automated tests (each uses its own temporary database) |
+| `npm run create-admin` | Creates an owner/admin login from the terminal, or resets a forgotten password |
 | `npm run jobs` | Runs the background automations once (for cron on shared hosting) |
 | `npm run demo` | **Optional:** loads a sample catalogue with fake orders, only into an empty catalogue. For trying things out, never on your real shop |
 | `npm run reset -- --yes` | **Deletes the whole database.** Stop the server and back up `data/drovox.db` first |

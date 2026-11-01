@@ -12,7 +12,8 @@
     "test": "node --no-warnings --test test/*.test.js",
     "jobs": "node --no-warnings server/run-jobs.js",
     "demo": "node --no-warnings server/seed.js",
-    "reset": "node server/reset.js"
+    "reset": "node server/reset.js",
+    "create-admin": "node --no-warnings server/create-admin.js"
   },
   "license": "UNLICENSED",
   "private": true,

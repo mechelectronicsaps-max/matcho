@@ -44,7 +44,8 @@ export async function startPanel(o) {
 
   function setupScreen() {
     if (!o.setup) {
-      root.innerHTML = `<div class="login-screen"><div class="card"><h2>Setup needed</h2><p>No owner account exists yet. Open the <a class="link" href="/master">Master panel</a> to set up your shop first.</p></div></div>`;
+      root.innerHTML = `<div class="login-screen"><div class="card"><h2>Setup needed</h2><p>No owner account exists yet. Open the <a class="link" href="/master">Master panel</a> to set up your shop first.</p>
+        <p class="small muted">Or create it from the terminal in the drovox folder: <span class="code">npm run create-admin</span></p></div></div>`;
       return;
     }
     root.innerHTML = `<div class="login-screen"><div class="card" style="width:min(560px,100%)"><a href="/" class="logo" style="margin-bottom:12px"><span class="mark">D</span><span>Dro<b>vox</b></span></a>
