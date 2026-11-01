@@ -10,29 +10,42 @@
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
-  <div class="topbar"><div class="wrap"><span>🚚 Free shipping above ₹<span id="tb-free">499</span> · Same-day dispatch before 3 PM</span><span class="hide-m">GST invoice on every order · Bulk pricing for labs &amp; colleges · <a href="#/bulk">Get a bulk quote →</a></span></div></div>
+  <div class="topbar"><div class="wrap">
+    <span class="row" style="gap:16px"><a id="tb-phone" href="#/support">📞 <span id="tb-phone-num">Customer support</span></a><a href="#/support" class="hide-m">Customer Support</a></span>
+    <span class="row" style="gap:14px"><span id="tb-welcome" class="hide-m">🚚 Free shipping above ₹<span id="tb-free">499</span></span><span id="tb-social" class="social"></span></span>
+  </div></div>
   <header class="site">
     <div class="wrap">
-      <a href="#/" class="logo" aria-label="Drovox home"><span class="mark">D</span><span>Dro<b>vox</b></span></a>
+      <a href="#/" class="logo" aria-label="Drovox home"><span class="mark">D</span><span>Dro<b>vox</b><small class="logo-tag">Your ideas, our parts</small></span></a>
       <form class="search" id="search-form" role="search" autocomplete="off">
-        <input id="q" name="q" placeholder="Search Arduino, ESP32, sensors, motors…" aria-label="Search products">
+        <input id="q" name="q" placeholder="Search Arduino, ESP32, sensors, “how to make a drone”…" aria-label="Search products">
+        <button class="search-btn" aria-label="Search">Search</button>
         <div class="suggest hidden" id="suggest"></div>
       </form>
       <nav class="nav-icons">
-        <a class="icon-btn" href="#/services" title="3D printing, PCB, laser cutting, battery packs">🛠️<span class="lbl">Services</span></a>
-        <a class="icon-btn" href="#/builder" title="AI Project Builder">✨<span class="lbl">AI Builder</span></a>
+        <a class="icon-btn" href="#/compare" title="Compare products">⇄<span class="lbl">Compare</span><span class="count hidden" id="cmp-count">0</span></a>
+        <a class="icon-btn" href="#/orders" title="My orders">📦<span class="lbl">Orders</span></a>
         <a class="icon-btn" href="#/account" id="nav-account" title="Account">👤<span class="lbl" id="nav-account-lbl">Sign in</span></a>
-        <a class="icon-btn" href="#/cart" title="Cart">🛒<span class="lbl">Cart</span><span class="count hidden" id="cart-count">0</span></a>
+        <a class="icon-btn" href="#/wishlist" title="Wishlist">♡<span class="count hidden" id="wish-count">0</span></a>
+        <a class="icon-btn" href="#/cart" title="Cart">🛒<span class="count hidden" id="cart-count">0</span></a>
       </nav>
     </div>
   </header>
-  <div class="catbar"><div class="wrap" id="catbar"></div></div>
+  <div class="mainnav"><div class="wrap">
+    <div class="allcats"><button id="allcats-btn" aria-expanded="false">☰ All Categories <span>▾</span></button><div class="allcats-menu hidden" id="allcats-menu"></div></div>
+    <nav class="mainlinks" id="mainlinks">
+      <a href="#/">Home</a><a href="#/search">Shop</a><a href="#/services">Services</a><a href="#/bulk">Bulk Enquiry</a><a href="#/search?sort=newest">New Arrivals</a>
+      <a href="#/atl">ATL Kits Enquiry</a><a href="#/blog" id="nav-blog">Blogs</a><a href="#/bom">BOM Tool</a><a href="#/builder">AI Builder</a><a href="#/careers" id="nav-careers">Careers</a>
+    </nav>
+    <a class="sell" href="#/partner?type=seller">🏪 Sell on Drovox</a>
+  </div></div>
+  <div class="catbar hidden"><div class="wrap" id="catbar"></div></div>
   <main><div class="wrap" id="app"><div class="skeleton"></div></div></main>
   <footer class="site">
     <div class="wrap grid g4">
       <div><div class="logo" style="color:#fff"><span class="mark">D</span><span>Dro<b>vox</b></span></div><p>Components for makers, engineers and builders. Imported directly, tested in India, shipped fast.</p></div>
       <div><h4>Shop</h4><a href="#/search">All products</a><a href="#/builder">AI Project Builder</a><a href="#/bulk">Request a part / quote</a><a href="#/services">3D printing &amp; PCB services</a><a href="#/services/battery">Battery packs</a></div>
-      <div><h4>Help</h4><a href="#/track">Track your order</a><a href="#/orders">My orders</a><a href="#/bulk">Bulk / college orders</a><a href="#/account">Rewards &amp; referrals</a><a href="#/partner">Become a partner</a></div>
+      <div><h4>Help</h4><a href="#/support">Customer support</a><a href="#/track">Track your order</a><a href="#/orders">My orders</a><a href="#/bulk">Bulk / college orders</a><a href="#/account">Rewards &amp; referrals</a><a href="#/partner">Become a partner</a><a href="#/careers">Careers</a><a href="#/blog">Blog</a></div>
       <div><h4>Contact</h4><span id="ft-contact"></span><a href="/stockist">Stockist login</a><a href="/master">Staff login</a></div>
     </div>
   </footer>

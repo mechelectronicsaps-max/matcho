@@ -2,7 +2,7 @@
 import { $, $$, api, esc, money, num, toast, modal, art, local, getToken, setToken, formData, badge, dt, printInvoice } from './common.js';
 import { pageServices, pagePartner, accountServices } from './services.js';
 
-const S = { cfg: null, user: null, cats: [], quoteCache: null };
+const S = { cfg: null, user: null, cats: [], quoteCache: null, site: { site: {}, banners: [], reviews: [] } };
 const app = $('#app');
 
 // ---------------------------------------------------------------- cart (localStorage + server copy)
@@ -18,6 +18,16 @@ const cart = {
 let syncT;
 function syncCart() { if (!S.user) return; clearTimeout(syncT); syncT = setTimeout(() => api('/cart/sync', { method: 'POST', body: { items: cart.items() } }).catch(() => {}), 800); }
 function renderCartCount() { const n = cart.count(); const el = $('#cart-count'); el.textContent = n; el.classList.toggle('hidden', !n); }
+const idList = (key, max) => ({
+  get: () => local.get(key, []),
+  has(id) { return this.get().includes(id); },
+  toggle(id) { const l = this.get(); const on = !l.includes(id); local.set(key, on ? [id, ...l].slice(0, max) : l.filter((x) => x !== id)); renderCounts(); return on; },
+  remove(id) { local.set(key, this.get().filter((x) => x !== id)); renderCounts(); },
+});
+const wish = idList('drv_wish', 100); const compare = idList('drv_compare', 4);
+function renderCounts() {
+  for (const [id, n] of [['wish-count', wish.get().length], ['cmp-count', compare.get().length]]) { const el = $('#' + id); if (el) { el.textContent = n; el.classList.toggle('hidden', !n); } }
+}
 const recent = { get: () => local.get('drv_recent', []), push(id) { local.set('drv_recent', [id, ...recent.get().filter((x) => x !== id)].slice(0, 12)); } };
 
 async function addToCart(p, qty = 1, opts = {}) {
@@ -36,7 +46,7 @@ async function addToCart(p, qty = 1, opts = {}) {
 function productCard(p) {
   const tags = [p.off_pct >= 30 ? `<span class="badge red">-${p.off_pct}%</span>` : '', p.growth_pct >= 50 && p.sold_7d ? '<span class="badge brand">🔥 Trending</span>' : '',
     p.stock <= 0 ? '<span class="badge">Sold out</span>' : p.low_stock ? `<span class="badge amber">Only ${p.stock} left</span>` : ''].join('');
-  return `<div class="pcard"><div class="tags">${tags}</div>
+  return `<div class="pcard"><div class="tags">${tags}</div><div class="pc-actions"><button data-wish="${p.id}" class="${wish.has(p.id) ? 'on' : ''}" title="Wishlist" aria-label="Add to wishlist">${wish.has(p.id) ? '♥' : '♡'}</button><button data-cmp="${p.id}" class="${compare.has(p.id) ? 'on' : ''}" title="Compare" aria-label="Add to compare">⇄</button></div>
     <a href="#/p/${esc(p.slug)}">${art(p)}</a>
     <a href="#/p/${esc(p.slug)}" class="name">${esc(p.name)}</a>
     <div><span class="price">${money(p.price)}</span>${p.mrp > p.price ? `<span class="mrp">${money(p.mrp)}</span>` : ''}</div>
@@ -46,6 +56,10 @@ function productCard(p) {
 const PRODUCT_CACHE = new Map();
 function rememberProducts(list) { for (const p of list) PRODUCT_CACHE.set(p.id, p); return list; }
 document.addEventListener('click', (e) => {
+  const w = e.target.closest('[data-wish]');
+  if (w) { e.preventDefault(); const on = wish.toggle(Number(w.dataset.wish)); $$(`[data-wish="${w.dataset.wish}"]`).forEach((x) => { x.classList.toggle('on', on); if (x.textContent.length <= 2) x.textContent = on ? '♥' : '♡'; }); toast(on ? '♥ Saved to your wishlist' : 'Removed from wishlist'); return; }
+  const c = e.target.closest('[data-cmp]');
+  if (c) { e.preventDefault(); const id = Number(c.dataset.cmp); if (!compare.has(id) && compare.get().length >= 4) return toast('You can compare up to 4 products — remove one first', 'err'); const on = compare.toggle(id); $$(`[data-cmp="${id}"]`).forEach((x) => x.classList.toggle('on', on)); toast(on ? `Added to compare (${compare.get().length}/4) <a class="link" href="#/compare" style="color:#ffb347">Compare now →</a>` : 'Removed from compare'); return; }
   const b = e.target.closest('[data-add]'); if (!b) return;
   e.preventDefault();
   const p = PRODUCT_CACHE.get(Number(b.dataset.add)); if (!p) return;
@@ -67,6 +81,9 @@ function renderHeader() {
   $('#nav-account-lbl').textContent = S.user ? `${S.user.name.split(' ')[0]} · ${num(S.user.points)} pts` : 'Sign in';
   $('#nav-account').href = S.user ? '#/account' : '#/login';
   const path = location.hash.split('?')[0];
+  $('#allcats-menu').innerHTML = `<a href="#/search"><span>All products</span><span>›</span></a>` + S.cats.map((c) => `<a href="#/c/${c.slug}"><span>${c.icon} ${esc(c.name)}</span><span class="tiny muted">${c.count || ''}</span></a>`).join('') + '<a href="#/services"><span>🛠️ Services</span><span>›</span></a>';
+  $$('#mainlinks a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === (location.hash || '#/') || (a.getAttribute('href').length > 2 && path.startsWith(a.getAttribute('href').split('?')[0]) && a.getAttribute('href') !== '#/search')));
+  renderCounts();
   $('#catbar').innerHTML = `<a href="#/search" class="${path === '#/search' ? 'on' : ''}">All products</a>` + S.cats.filter((c) => c.count).map((c) => `<a href="#/c/${c.slug}" class="${path === '#/c/' + c.slug ? 'on' : ''}">${c.icon} ${esc(c.name)}</a>`).join('') + '<a href="#/builder">✨ AI Project Builder</a><a href="#/services">🛠️ 3D Print · PCB · Laser · Battery</a><a href="#/partner">🤝 Become a Partner</a>';
 }
 let sugT;
@@ -86,40 +103,68 @@ $('#q').addEventListener('blur', () => setTimeout(() => $('#suggest').classList.
 $('#search-form').addEventListener('submit', (e) => { e.preventDefault(); $('#suggest').classList.add('hidden'); location.hash = `#/search?q=${encodeURIComponent($('#q').value.trim())}`; });
 
 // ---------------------------------------------------------------- pages
+// ---- home page blocks (Robu-style): service tiles + banner slider, service cards, reviews
+const TILE_SERVICES = [['pcb', 'PCB Manufacturing', '🟩'], ['print3d', '3D Printing', '🖨️'], ['laser', 'Laser Cutting', '🔥'], ['battery', 'Custom Battery Pack', '🔋']];
+function sliderHtml() {
+  const slides = S.site.banners.length ? S.site.banners.map((b) => b.image
+    ? `<a class="slide img-only" href="${esc(b.link || '#/search')}" style="background-color:${esc(b.bg)};background-image:url('/uploads/site/${encodeURIComponent(b.image)}')" aria-label="${esc(b.title)}"></a>`
+    : `<div class="slide" style="background:linear-gradient(120deg, ${esc(b.bg)}, #1e293b 75%)"><div><h2>${esc(b.title)}</h2>${b.subtitle ? `<p>${esc(b.subtitle)}</p>` : ''}${b.cta_text ? `<a class="btn primary lg" href="${esc(b.link || '#/search')}" style="margin-top:12px">${esc(b.cta_text)}</a>` : ''}</div></div>`)
+    : [`<div class="slide" style="background:radial-gradient(1000px 400px at 90% -20%, #ffb34755, transparent), linear-gradient(135deg, #0f172a, #1e293b 60%, #3b1d12)"><div><span class="badge brand">Imported direct · Tested in India</span><h2 style="margin-top:12px">Every component for your next build.</h2>
+        <p>Arduino, ESP32, sensors, motors, drone and 3D-printer parts — bulk pricing, GST invoices, same-day dispatch.</p><div class="row" style="margin-top:12px"><a class="btn primary" href="#/search">Shop all parts</a><a class="btn" style="background:transparent;color:#fff;border-color:#475569" href="#/bulk">Bulk quote</a></div></div>
+        <form class="ai-box" id="hero-ai"><div style="font-weight:700;margin-bottom:6px">✨ Tell us what you want to build</div><textarea name="idea" placeholder="e.g. A line follower robot, 2 units, budget ₹3000"></textarea><button class="btn primary block" style="margin-top:10px">Build my parts list</button></form></div>`,
+      `<div class="slide" style="background:linear-gradient(120deg, #2B1A7A, #13203A 70%)"><div><span class="badge brand">Drovox Services</span><h2 style="margin-top:12px">3D printing, PCBs, laser cutting & battery packs</h2><p>Upload your design and get an instant estimate.</p><a class="btn primary lg" href="#/services" style="margin-top:12px">Explore services</a></div></div>`,
+      `<div class="slide" style="background:linear-gradient(120deg, #0d6b5e, #13203A 70%)"><div><span class="badge brand">Atal Tinkering Labs</span><h2 style="margin-top:12px">Complete ATL kits for schools</h2><p>Equipment lists, GST invoices and GeM-ready quotations.</p><a class="btn primary lg" href="#/atl" style="margin-top:12px">ATL kits enquiry</a></div></div>`];
+  return `<div class="slider" id="slider">${slides.join('')}<div class="dots">${slides.map((_, i) => `<button data-dot="${i}" aria-label="Slide ${i + 1}"></button>`).join('')}</div></div>`;
+}
+let slideTimer;
+function startSlider() {
+  clearInterval(slideTimer);
+  const el = $('#slider'); if (!el) return;
+  const slides = $$('.slide', el); const dots = $$('[data-dot]', el); let i = 0;
+  const show = (n) => { i = (n + slides.length) % slides.length; slides.forEach((x, k) => x.classList.toggle('on', k === i)); dots.forEach((x, k) => x.classList.toggle('on', k === i)); };
+  dots.forEach((d) => { d.onclick = () => { show(Number(d.dataset.dot)); startAuto(); }; });
+  const startAuto = () => { clearInterval(slideTimer); if (slides.length > 1) slideTimer = setInterval(() => { if (!document.body.contains(el)) return clearInterval(slideTimer); show(i + 1); }, Math.max(2, Number(S.site.site.banner_seconds) || 5) * 1000); };
+  show(0); startAuto();
+}
+async function servicesSection() {
+  const cat = await api('/services').catch(() => null);
+  if (!cat?.services?.length) return '';
+  return section('🛠️ Drovox services', 'Upload your design, see an instant price, get it made', `<div class="svc-cards">${cat.services.map((v) => `<a class="svc-card" href="#/services/${v.id}"><div class="txt"><h3>Drovox ${esc(v.title)}</h3><span class="btn indigo sm">Order now</span></div><div class="pic">${v.icon}</div></a>`).join('')}</div>`);
+}
+function reviewsSection() {
+  const r = S.site.reviews; if (!r.length) return '';
+  const avg = r.reduce((s, x) => s + x.rating, 0) / r.length;
+  const colors = ['#8E44AD', '#2E86C1', '#117A65', '#CA6F1E', '#B03A2E', '#2E4053'];
+  return section(esc(S.site.site.reviews_title || 'What our customers say'), '', `<div class="reviews"><div class="rev-summary"><h3 style="margin:0">Customer reviews</h3><div class="stars" style="font-size:1.4rem">${'★'.repeat(Math.round(avg))}</div><div class="small muted">${avg.toFixed(1)} average from ${r.length} review${r.length > 1 ? 's' : ''}</div>
+    ${S.site.site.google_reviews_url ? `<a class="link small" target="_blank" rel="noopener" href="${esc(S.site.site.google_reviews_url)}">Read all / write a review on Google →</a>` : ''}</div>
+    <div class="rev-track">${r.map((x, k) => `<div class="rev"><div class="row"><div class="av" style="background:${colors[k % colors.length]}">${esc(x.name[0] || '?')}</div><div><b class="small">${esc(x.name)}</b><div class="tiny muted">${[x.review_date, x.source].filter(Boolean).map(esc).join(' · ')}</div></div></div>
+      <div class="stars" aria-label="${x.rating} out of 5">${'★'.repeat(x.rating)}${'☆'.repeat(5 - x.rating)} ${x.verified ? '<span class="badge blue" style="letter-spacing:0">verified</span>' : ''}</div><p class="small" style="margin:0">${esc(x.text)}</p></div>`).join('')}</div></div>`);
+}
+
 async function pageHome() {
   setTitle('');
-  const [home, recentItems] = await Promise.all([api('/home'), recent.get().length ? api('/products/batch', { method: 'POST', body: { ids: recent.get() } }) : []]);
-  if (!home.trending.length && !home.new_arrivals.length) {
-    app.innerHTML = `<div class="hero"><div><span class="badge brand">Opening soon</span><h1 style="margin-top:12px">${esc(S.cfg.store.name)} — components for makers &amp; engineers</h1>
-      <p>Our catalogue is being stocked right now. Leave your requirement and we'll WhatsApp you with prices and availability.</p>
-      <div class="row" style="margin-top:16px"><a class="btn primary lg" href="#/bulk">Request parts / quote</a>${S.user ? '' : '<a class="btn lg" style="background:transparent;color:#fff;border-color:#475569" href="#/register">Create account</a>'}</div></div></div>`;
-    return;
-  }
+  const [home, recentItems, svcHtml] = await Promise.all([api('/home'), recent.get().length ? api('/products/batch', { method: 'POST', body: { ids: recent.get() } }) : [], servicesSection()]);
+  const top = `<div class="home-top"><div class="svc-tiles">${TILE_SERVICES.map(([id, name, ic]) => `<a href="#/services/${id}">${esc(name)}<span>${ic}</span></a>`).join('')}</div>${sliderHtml()}</div>`;
+  const hasStock = home.trending.length || home.new_arrivals.length;
   const today = new Date().toISOString().slice(0, 10);
   const checkin = S.user && S.user.last_checkin !== today
     ? `<div class="banner brand section"><div>🎁 <b>Daily check-in:</b> collect ${S.cfg.loyalty.daily_checkin} Drovox points today${S.user.checkin_streak ? ` · ${S.user.checkin_streak}-day streak, keep it going for a 7-day bonus!` : ''}</div><button class="btn primary sm" id="checkin">Collect points</button></div>` : '';
   const refer = S.user ? `<div class="banner teal section"><div>🤝 <b>Refer a friend:</b> they get ${S.cfg.loyalty.referee_bonus} points, you get ${S.cfg.loyalty.referrer_bonus} when their first order is delivered. Your code <span class="code">${esc(S.user.referral_code)}</span></div><a class="btn sm" href="#/account">Share</a></div>`
-    : `<div class="banner teal section"><div>🎉 New here? Sign up for <b>${S.cfg.loyalty.signup_bonus} bonus points</b> ${S.cfg.engagement.welcome_coupon ? ` and use <span class="code">${esc(S.cfg.engagement.welcome_coupon)}</span> on your first order` : ''}.</div><a class="btn sm primary" href="#/register">Create account</a></div>`;
-  app.innerHTML = `
-    <div class="hero">
-      <div><span class="badge brand">Imported direct · Tested in India</span><h1 style="margin-top:12px">Every component for your next build.</h1>
-        <p>Arduino, ESP32, Raspberry Pi, sensors, motors, drone and 3D-printer parts — with bulk pricing, GST invoices and same-day dispatch.</p>
-        <div class="row" style="margin-top:16px"><a class="btn primary lg" href="#/search">Shop all parts</a><a class="btn lg" style="background:transparent;color:#fff;border-color:#475569" href="#/bulk">Bulk / college quote</a></div></div>
-      <form class="ai-box" id="hero-ai"><div style="font-weight:700;margin-bottom:6px">✨ Tell us what you want to build</div>
-        <textarea name="idea" placeholder="e.g. A line follower robot for a college competition, 2 units, budget ₹3000"></textarea>
-        <button class="btn primary block" style="margin-top:10px">Build my parts list &amp; fill my cart</button>
-        <div class="tiny" style="color:#94a3b8;margin-top:6px">Powered by Claude AI — picks real in-stock parts from our catalogue.</div></form>
-    </div>
+    : `<div class="banner teal section"><div>🎉 New here? Sign up for <b>${S.cfg.loyalty.signup_bonus} bonus points</b>${S.cfg.engagement.welcome_coupon ? ` and use <span class="code">${esc(S.cfg.engagement.welcome_coupon)}</span> on your first order` : ''}.</div><a class="btn sm primary" href="#/register">Create account</a></div>`;
+  app.innerHTML = `${top}
     <div class="usp"><div>🚀<span><b>Same-day dispatch</b>Order before 3 PM</span></div><div>🧾<span><b>GST invoice</b>Claim input credit</span></div><div>📦<span><b>Bulk pricing</b>Tiered per-unit rates</span></div><div>⭐<span><b>Earn points</b>${S.cfg.loyalty.earn_per_100} pts per ₹100</span></div></div>
     ${checkin}
-    ${!S.cats.some((c) => c.count) ? '' : section('Shop by category', '', `<div class="cats">${S.cats.filter((c) => c.count).map((c) => `<a href="#/c/${c.slug}"><span>${c.icon}</span>${esc(c.name)}<div class="tiny muted">${c.count} items</div></a>`).join('')}</div>`)}
-    ${section('🔥 Trending now', 'What makers across India are buying this week', grid(home.trending, 'hscroll'), '<a class="link small" href="#/search?sort=popular">See all →</a>')}
+    ${!S.cats.some((c) => c.count) ? '' : section('Categories', '', `<div class="cats">${S.cats.filter((c) => c.count).map((c) => `<a href="#/c/${c.slug}"><span>${c.icon}</span>${esc(c.name)}<div class="tiny muted">${c.count} items</div></a>`).join('')}</div>`, '<a class="btn sm" href="#/search">View all</a>')}
+    ${hasStock ? section('🔥 Trending now', 'What makers across India are buying this week', grid(home.trending, 'hscroll'), '<a class="link small" href="#/search?sort=popular">See all →</a>') : `<div class="banner brand section"><div>🛒 Our catalogue is being stocked right now — services are open, and you can <a class="link" href="#/bulk">request any part</a>.</div></div>`}
+    ${S.site.site.show_services_on_home === false ? '' : svcHtml}
     ${home.recommended.length ? section('Recommended for you', 'Based on what you browsed and what others bought with it', grid(home.recommended, 'hscroll')) : ''}
     ${refer}
-    ${section('💸 Best deals', 'Biggest savings on MRP', grid(home.deals, 'hscroll'), '<a class="link small" href="#/search?sort=discount">All deals →</a>')}
+    ${home.deals.length ? section('💸 Best deals', 'Biggest savings on MRP', grid(home.deals, 'hscroll'), '<a class="link small" href="#/search?sort=discount">All deals →</a>') : ''}
     ${recentItems.length ? section('Recently viewed', '', grid(recentItems, 'hscroll')) : ''}
-    ${section('New arrivals', '', grid(home.new_arrivals, 'hscroll'), '<a class="link small" href="#/search?sort=newest">See all →</a>')}`;
-  $('#hero-ai').onsubmit = (e) => { e.preventDefault(); const idea = formData(e.target).idea.trim(); location.hash = `#/builder?idea=${encodeURIComponent(idea)}&go=1`; };
+    ${home.new_arrivals.length ? section('New arrivals', '', grid(home.new_arrivals, 'hscroll'), '<a class="link small" href="#/search?sort=newest">See all →</a>') : ''}
+    ${reviewsSection()}`;
+  startSlider();
+  $('#hero-ai')?.addEventListener('submit', (e) => { e.preventDefault(); const idea = formData(e.target).idea.trim(); location.hash = `#/builder?idea=${encodeURIComponent(idea)}&go=1`; });
   $('#checkin')?.addEventListener('click', async () => { const r = await api('/me/checkin', { method: 'POST' }); toast(r.already ? 'Already collected today' : `+${r.points} points · ${r.streak}-day streak 🔥`); await loadMe(); pageHome(); });
 }
 
@@ -167,7 +212,7 @@ async function pageProduct(slug) {
         <div class="row"><div class="qty"><button id="minus" aria-label="Decrease">−</button><input id="qty" value="1" inputmode="numeric" aria-label="Quantity"><button id="plus" aria-label="Increase">+</button></div>
           <div><b id="line">${money(p.price)}</b> <span class="small muted" id="nudge"></span></div></div>
         <div class="row">${p.stock > 0 ? '<button class="btn primary lg" id="add">Add to cart</button><button class="btn dark lg" id="buy">Buy now</button>' : '<button class="btn primary lg" id="notify">🔔 Notify me when back</button>'}
-          <a class="btn lg" href="#/bulk?sku=${esc(p.sku)}">Bulk quote</a></div>
+          <a class="btn lg" href="#/bulk?sku=${esc(p.sku)}">Bulk quote</a><button class="btn lg ${wish.has(p.id) ? 'on' : ''}" data-wish="${p.id}" title="Wishlist">♡ Wishlist</button><button class="btn lg" data-cmp="${p.id}" title="Compare">⇄ Compare</button></div>
         <div class="small muted">⭐ Earn ~${Math.floor(p.price / 100 * S.cfg.loyalty.earn_per_100)} Drovox points · 🚚 Free shipping above ${money(S.cfg.shipping.free_above)} · 💵 COD available</div>
         <hr class="sep"><p>${esc(p.description)}</p>
         <table class="specs">${Object.entries(p.specs).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>
@@ -470,6 +515,109 @@ function pageAuth(mode, params) {
   };
 }
 
+// ---------------------------------------------------------------- compare, wishlist, BOM tool, ATL, blog, careers, support
+async function pageCompare() {
+  setTitle('Compare products');
+  const items = await api('/products/compare', { method: 'POST', body: { ids: compare.get() } });
+  if (!items.length) { app.innerHTML = '<div class="empty card"><div class="big">⇄</div><h2>Nothing to compare yet</h2><p>Tap ⇄ on up to 4 products to compare price, bulk pricing and specifications side by side.</p><a class="btn primary" href="#/search">Browse products</a></div>'; return; }
+  rememberProducts(items.map((p) => ({ ...p, best_bulk_price: p.tiers.at(-1)?.price })));
+  const keys = [...new Set(items.flatMap((p) => Object.keys(p.specs)))];
+  const row = (label, f) => `<tr><th>${esc(label)}</th>${items.map((p) => `<td>${f(p)}</td>`).join('')}</tr>`;
+  app.innerHTML = `<div class="row between"><h1>Compare products</h1><button class="btn sm" id="clr">Clear all</button></div><div class="card table-wrap"><table class="t cmp">
+    <tr><th></th>${items.map((p) => `<td><a href="#/p/${esc(p.slug)}">${art(p, 'sm')}<b class="small">${esc(p.name)}</b></a><div><a class="link tiny" data-rm="${p.id}">Remove</a></div></td>`).join('')}</tr>
+    ${row('Price', (p) => `<b>${money(p.price)}</b> ${p.mrp > p.price ? `<span class="muted" style="text-decoration:line-through">${money(p.mrp)}</span>` : ''}`)}
+    ${row('Bulk pricing', (p) => p.tiers.map((t) => `${t.min_qty}+ : ${money(t.price)}`).join('<br>') || '—')}
+    ${row('Availability', (p) => (p.stock > 0 ? `<span class="badge green">In stock (${p.stock})</span>` : '<span class="badge red">Out of stock</span>'))}
+    ${row('Category', (p) => esc(p.category || ''))}${row('Brand', (p) => esc(p.brand || '—'))}${row('SKU', (p) => `<span class="code">${esc(p.sku)}</span>`)}${row('GST / HSN', (p) => `${p.gst_rate}% · ${esc(p.hsn)}`)}
+    ${keys.map((k) => row(k, (p) => esc(p.specs[k] ?? '—'))).join('')}
+    <tr><th></th>${items.map((p) => `<td><button class="btn primary sm" data-add="${p.id}">Add to cart</button></td>`).join('')}</tr></table></div>`;
+  $$('[data-rm]').forEach((a) => { a.onclick = () => { compare.remove(Number(a.dataset.rm)); pageCompare(); }; });
+  $('#clr').onclick = () => { local.set('drv_compare', []); renderCounts(); pageCompare(); };
+}
+
+async function pageWishlist() {
+  setTitle('Wishlist');
+  const items = wish.get().length ? await api('/products/batch', { method: 'POST', body: { ids: wish.get() } }) : [];
+  app.innerHTML = items.length ? `<div class="row between"><h1>My wishlist (${items.length})</h1><button class="btn primary" id="all">Add all in-stock items to cart</button></div>${grid(items)}`
+    : '<div class="empty card"><div class="big">♡</div><h2>Your wishlist is empty</h2><p>Tap ♡ on any product to save it for later.</p><a class="btn primary" href="#/search">Browse products</a></div>';
+  $('#all')?.addEventListener('click', () => { const ok = items.filter((p) => p.stock > 0); ok.forEach((p) => cart.add(p.id, 1)); toast(`Added ${ok.length} items to your cart`); location.hash = '#/cart'; });
+}
+
+function pageBom() {
+  setTitle('BOM Tool');
+  app.innerHTML = `<div style="max-width:1000px;margin:0 auto"><h1>BOM Tool</h1><p class="muted">Paste your bill of materials — one part per line, with quantity — and we’ll match each line to our catalogue and add everything to your cart in one click. Works with lists copied from Excel, KiCad/Eagle BOM exports or plain text.</p>
+    <form class="card stack" id="bf"><textarea name="text" rows="9" placeholder="2 x Arduino Uno\nHC-SR04, 4\nL298N motor driver\t2\n10 jumper wires male to male\nSG90 servo 3"></textarea>
+      <div class="row"><button class="btn primary">Match parts</button><label class="btn" style="cursor:pointer">Upload CSV / TXT<input type="file" id="bfile" accept=".csv,.txt,.tsv" hidden></label><span class="small muted">Format: quantity and part name in any order.</span></div></form>
+    <div id="br"></div></div>`;
+  $('#bfile').onchange = async (e) => { const f = e.target.files[0]; if (f) { $('#bf textarea').value = (await f.text()).split(/\r?\n/).map((l) => l.replace(/[",;]+/g, ' ').trim()).filter(Boolean).join('\n'); } };
+  $('#bf').onsubmit = async (e) => {
+    e.preventDefault();
+    const r = await api('/bom/match', { method: 'POST', body: { text: formData(e.target).text } });
+    rememberProducts(r.rows.flatMap((x) => [x.match, ...x.alternatives]).filter(Boolean));
+    const total = r.rows.reduce((s, x) => s + (x.match ? x.match.unit_price * x.qty : 0), 0);
+    $('#br').innerHTML = `<div class="card section"><div class="row between"><h3 style="margin:0">${r.matched} of ${r.total} lines matched</h3><b>≈ ${money(total)}</b></div>
+      ${r.rows.map((x, i) => `<div class="bom-row"><div class="small"><b>${esc(x.name)}</b><div class="tiny muted">${esc(x.line)}</div></div><input type="number" min="1" value="${x.qty}" data-q="${i}">
+        <div>${x.match ? `<select data-p="${i}">${[x.match, ...x.alternatives].map((p) => `<option value="${p.id}">${esc(p.name)} — ${money(p.unit_price)}${p.stock > 0 ? '' : ' (out of stock)'}</option>`).join('')}</select>` : '<span class="small" style="color:var(--amber)">No match — <a class="link" href="#/bulk">ask us to source it</a></span>'}</div>
+        <label class="check small"><input type="checkbox" data-c="${i}" ${x.match && x.match.stock > 0 ? 'checked' : ''} ${x.match ? '' : 'disabled'}> Add</label></div>`).join('')}
+      <div class="row" style="margin-top:14px"><button class="btn primary lg" id="badd">🛒 Add selected to cart</button><a class="btn" href="#/bulk">Need a bulk quote instead?</a></div></div>`;
+    $('#badd').onclick = () => { let n = 0; for (const c of $$('[data-c]')) if (c.checked) { const i = c.dataset.c; cart.add(Number($(`[data-p="${i}"]`).value), Math.max(1, parseInt($(`[data-q="${i}"]`).value, 10) || 1)); n++; } toast(`Added ${n} parts to your cart`); location.hash = '#/cart'; };
+  };
+}
+
+function pageAtl() {
+  setTitle('ATL Kits Enquiry');
+  const packs = ['Electronics, robotics & IoT kits', '3D printer & rapid prototyping', 'Mechanical, electrical & measurement tools', 'Power supply, accessories & safety', 'Complete new ATL setup', 'Consumables refill (annual)'];
+  app.innerHTML = `<div class="hero" style="grid-template-columns:1fr"><div><span class="badge brand">Atal Tinkering Labs</span><h1 style="margin-top:10px">ATL kits for schools</h1><p>Equipment for every ATL package — Arduino and sensor kits, robotics, 3D printers, tools and safety gear — with GST invoices, GeM-ready quotations, installation support and teacher training.</p></div></div>
+    <div class="cart-layout section"><form class="card form two" id="af"><h3 class="full" style="margin:0">Request equipment list & quotation</h3>
+      <label class="f full">School name<input name="school" required></label><label class="f">Contact person<input name="name" required value="${esc(S.user?.name || '')}"></label><label class="f">WhatsApp number<input name="phone" required value="${esc(S.user?.phone || '')}"></label>
+      <label class="f">Email<input name="email" type="email" value="${esc(S.user?.email || '')}"></label><label class="f">City / district<input name="city"></label>
+      <label class="f">Number of students<select name="students"><option>Up to 60</option><option>60–150</option><option>150+</option></select></label><label class="f">Budget (₹, optional)<input name="budget" type="number" min="0"></label>
+      <div class="full"><div class="f">What do you need?</div>${packs.map((p) => `<label class="check" style="margin-top:6px"><input type="checkbox" name="pk" value="${esc(p)}"> ${esc(p)}</label>`).join('')}</div>
+      <label class="f full">Message<textarea name="message" rows="3" placeholder="New lab or top-up, deadline, GeM purchase, etc."></textarea></label><button class="btn primary lg full">Send enquiry</button></form>
+      <div class="card stack"><h3>Why schools choose us</h3><p class="small">✓ Kits matched to the official ATL equipment packages<br>✓ GST invoice and GeM-ready quotation<br>✓ Installation, demo and teacher training<br>✓ Project ideas and student activity guides<br>✓ Fast replacement of consumables</p><a class="btn" href="#/search">Browse components</a></div></div>`;
+  $('#af').onsubmit = async (e) => { e.preventDefault(); const f = formData(e.target); f.packages = $$('[name=pk]').filter((c) => c.checked).map((c) => c.value); try { const r = await api('/atl-enquiry', { method: 'POST', body: f }); app.innerHTML = `<div class="empty card"><div class="big">✅</div><h2>Enquiry received</h2><p>${esc(r.message)}</p><a class="btn primary" href="#/">Back to home</a></div>`; } catch (err) { toast(err.message, 'err'); } };
+}
+
+async function pageBlog(slug) {
+  if (slug) {
+    const p = await api(`/posts/${encodeURIComponent(slug)}`); setTitle(p.title);
+    const para = esc(p.body).split(/\n{2,}/).map((x) => (x.startsWith('## ') ? `<h2>${x.slice(3)}</h2>` : `<p>${x.replace(/\n/g, '<br>')}</p>`)).join('');
+    app.innerHTML = `<div class="prose" style="margin:0 auto"><div class="small muted"><a href="#/blog">Blog</a> · ${dt(p.created_at, false)}</div><h1>${p.cover ? `${esc(p.cover)} ` : ''}${esc(p.title)}</h1>${p.excerpt ? `<p class="muted" style="font-size:1.15rem">${esc(p.excerpt)}</p>` : ''}${para}<hr class="sep"><a class="btn" href="#/blog">← All posts</a></div>`;
+    return;
+  }
+  setTitle('Blog');
+  const posts = await api('/posts');
+  app.innerHTML = `<h1>Blog</h1><p class="muted">Tutorials, project ideas and buying guides.</p>${posts.length ? `<div class="grid g3">${posts.map((p) => `<a class="card stack" href="#/blog/${esc(p.slug)}"><div style="font-size:2.4rem">${esc(p.cover || '📝')}</div><h3 style="margin:0">${esc(p.title)}</h3><p class="small muted" style="margin:0">${esc(p.excerpt || '')}</p><span class="tiny muted">${dt(p.created_at, false)}</span></a>`).join('')}</div>` : '<div class="empty card">No posts yet.</div>'}`;
+}
+
+async function pageCareers() {
+  setTitle('Careers');
+  const jobs = await api('/jobs');
+  app.innerHTML = `<h1>Careers at ${esc(S.cfg.store.name)}</h1><p class="muted">Join a team that helps India’s makers, students and engineers build things.</p>
+    ${jobs.length ? jobs.map((j) => `<div class="card section"><div class="row between"><div><h3 style="margin:0">${esc(j.title)}</h3><div class="small muted">${esc(j.location || '')}${j.type ? ` · ${esc(j.type)}` : ''}</div></div><button class="btn primary" data-apply="${j.id}">Apply</button></div><p class="small" style="white-space:pre-line">${esc(j.description)}</p></div>`).join('') : '<div class="empty card">No open positions right now — check back soon.</div>'}`;
+  $$('[data-apply]').forEach((b) => { b.onclick = () => {
+    const job = jobs.find((j) => j.id === Number(b.dataset.apply));
+    const m = modal(`<h2>Apply: ${esc(job.title)}</h2><form class="form"><label class="f">Full name<input name="name" required></label><label class="f">Mobile<input name="phone" required></label><label class="f">Email<input name="email" type="email"></label>
+      <label class="f">Resume (PDF/DOC, max 5 MB)<input type="file" id="cv" accept=".pdf,.doc,.docx"></label><label class="f">Why do you want to join?<textarea name="message" rows="3"></textarea></label><button class="btn primary">Submit application</button></form>`);
+    $('form', m.el).onsubmit = async (e) => {
+      e.preventDefault(); const f = formData(e.target); const file = $('#cv', m.el).files[0];
+      if (file) { if (file.size > 5 * 1048576) return toast('Resume must be under 5 MB', 'err'); f.resume = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(file); }); }
+      try { const r = await api(`/jobs/${job.id}/apply`, { method: 'POST', body: f }); toast(r.message); m.close(); } catch (err) { toast(err.message, 'err'); }
+    };
+  }; });
+}
+
+function pageSupport() {
+  setTitle('Customer support');
+  const site = S.site.site || {}; const st = S.cfg.store; const phone = site.toll_free || st.support_phone;
+  const wa = String(st.support_phone || '').replace(/\D/g, '');
+  app.innerHTML = `<div style="max-width:900px;margin:0 auto"><h1>Customer support</h1><p class="muted">${esc(site.support_hours || '')}</p>
+    <div class="grid g3">${phone ? `<a class="card stack" href="tel:${esc(phone.replace(/[^\d+]/g, ''))}"><div style="font-size:2rem">📞</div><h3 style="margin:0">Call us</h3><p class="small" style="margin:0">${esc(phone)}</p></a>` : ''}
+      ${wa ? `<a class="card stack" target="_blank" rel="noopener" href="https://wa.me/${wa.length === 10 ? '91' + wa : wa}"><div style="font-size:2rem">💬</div><h3 style="margin:0">WhatsApp</h3><p class="small" style="margin:0">Chat with our team</p></a>` : ''}
+      ${st.support_email ? `<a class="card stack" href="mailto:${esc(st.support_email)}"><div style="font-size:2rem">✉️</div><h3 style="margin:0">Email</h3><p class="small" style="margin:0">${esc(st.support_email)}</p></a>` : ''}</div>
+    <div class="grid g3 section"><a class="card" href="#/track"><h3>📦 Track an order</h3><p class="small muted">Order number + phone</p></a><a class="card" href="#/orders"><h3>🧾 Invoices & returns</h3><p class="small muted">From My Orders</p></a><a class="card" href="#/bulk"><h3>🏫 Bulk & institutional</h3><p class="small muted">Quotes within one working day</p></a></div></div>`;
+}
+
 async function pageAccount() {
   setTitle('My account');
   if (!requireLogin()) return;
@@ -529,7 +677,7 @@ async function route() {
   const params = new URLSearchParams(qs || '');
   const parts = (path || '/').split('/').filter(Boolean);
   $$('.modal-wrap').forEach((m) => m.remove());
-  renderHeader(); window.scrollTo(0, 0);
+  renderHeader(); window.scrollTo(0, 0); $('#allcats-menu')?.classList.add('hidden');
   if (params.get('ref')) local.set('drv_ref', params.get('ref'));
   try {
     switch (parts[0]) {
@@ -545,7 +693,14 @@ async function route() {
       case 'builder': await pageBuilder(params); break;
       case 'bulk': pageBulk(params); break;
       case 'services': await pageServices(app, S, parts, setTitle); break;
-      case 'partner': await pagePartner(app, S, setTitle); break;
+      case 'partner': await pagePartner(app, S, setTitle, params); break;
+      case 'compare': await pageCompare(); break;
+      case 'wishlist': await pageWishlist(); break;
+      case 'bom': pageBom(); break;
+      case 'atl': pageAtl(); break;
+      case 'blog': await pageBlog(parts[1]); break;
+      case 'careers': await pageCareers(); break;
+      case 'support': pageSupport(); break;
       case 'login': pageAuth('login', params); break;
       case 'register': pageAuth('register', params); break;
       case 'account': await pageAccount(); break;
@@ -557,8 +712,17 @@ async function route() {
 }
 
 (async function boot() {
-  [S.cfg, S.cats] = await Promise.all([api('/config'), api('/categories')]);
+  [S.cfg, S.cats, S.site] = await Promise.all([api('/config'), api('/categories'), api('/site').catch(() => S.site)]);
   $('#tb-free').textContent = S.cfg.shipping.free_above;
+  const site = S.site.site || {};
+  const phone = site.toll_free || S.cfg.store.support_phone;
+  if (phone) { $('#tb-phone-num').textContent = phone; $('#tb-phone').href = `tel:${phone.replace(/[^\d+]/g, '')}`; }
+  $('#tb-social').innerHTML = [['facebook_url', 'f', 'Facebook'], ['x_url', '𝕏', 'X'], ['linkedin_url', 'in', 'LinkedIn'], ['instagram_url', 'IG', 'Instagram'], ['youtube_url', '▶', 'YouTube']]
+    .filter(([k]) => site[k]).map(([k, t, l]) => `<a href="${esc(site[k])}" target="_blank" rel="noopener" title="${l}" aria-label="${l}">${t}</a>`).join('');
+  if (!S.site.has_blog) $('#nav-blog')?.remove();
+  if (!S.site.has_jobs) $('#nav-careers')?.remove();
+  $('#allcats-btn').onclick = (e) => { e.stopPropagation(); const m = $('#allcats-menu'); m.classList.toggle('hidden'); $('#allcats-btn').setAttribute('aria-expanded', String(!m.classList.contains('hidden'))); };
+  document.addEventListener('click', (e) => { if (!e.target.closest('.allcats')) $('#allcats-menu')?.classList.add('hidden'); });
   $('#ft-contact').innerHTML = `${esc(S.cfg.store.support_phone)}<br>${esc(S.cfg.store.support_email)}<br>${esc(S.cfg.store.address)}`;
   await loadMe(); renderCartCount(); syncCart();
   window.addEventListener('hashchange', route); route(); exitIntent();

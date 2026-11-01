@@ -56,9 +56,37 @@ Your data lives in a single file, `drovox/data/drovox.db`. Back it up.
   - The job moves Pending → In progress → **Ready** → Delivered.
   - Marking a job **Ready** sends the customer a WhatsApp message with the balance due.
 
+## Storefront layout (robu.in-style)
+
+- **Top bar:** toll-free / support number, Customer Support, free-shipping note and social links. Set these in Master → Settings → Website.
+- **Header:** logo with tagline, a search box with a Search button, Compare (up to 4 products), Orders, Account, Wishlist and Cart.
+- **Menu:**
+  - an **All Categories** dropdown
+  - Home, Shop, Services, Bulk Enquiry, New Arrivals, **ATL Kits Enquiry**, Blogs, **BOM Tool**, AI Builder and Careers
+  - a **Sell on Drovox** button, which opens the partner form with the brand/seller type selected
+  - Blogs and Careers only appear once you publish something
+- **Home page:** four service tiles (PCB, 3D Printing, Laser Cutting, Custom Battery Pack) beside a **banner slider**.
+  - Manage banners in Master → **Website content → Home banners**: a text banner, or an uploaded image with a link.
+  - Then come categories, trending items, the six **service cards with Order now**, deals, new arrivals, and the **reviews** section.
+  - The reviews section appears only once you add real reviews in Website content → Reviews. You can link your Google Business review page.
+- **New pages:**
+  - Compare: price, bulk tiers, stock and every spec side by side.
+  - Wishlist.
+  - **BOM Tool:** paste or upload a parts list with quantities. It matches each line to the catalogue, using bulk prices, and adds everything to the cart.
+  - **ATL Kits Enquiry:** goes to the CRM as an "atl" lead, with WhatsApp messages to the school and to you.
+  - Blog, Careers (with résumé upload, viewed in Website content → Job applications) and Customer Support.
+
 ## Services (like robu.in services)
 
-Storefront → **Services** (`/#/services`): **3D printing** (PLA, PETG, ABS, TPU, resin), **PCB manufacturing** (1/2/4 layers, mask colour, HASL/ENIG, stencil, assembly), **laser cutting & engraving** (MDF, plywood, cardboard), **acrylic cutting** (2–8 mm, colours) and **battery packs**. A battery pack can be built new (18650 / 21700 / LiFePO4, series × parallel, BMS, connector; the page shows voltage, Ah, Wh and weight) or an existing pack can be tested and repaired.
+Storefront → **Services** (`/#/services`) offers six services:
+- **Industrial 3D printing:** SLA standard, tough or clear resin; SLS and MJF nylon. Priced by cm³, with finishing options.
+- **Online FDM 3D printing:** PLA, PETG, ABS and TPU, priced by the gram.
+- **Metal laser cutting:** MS, SS304, aluminium, brass and GI. Only the thicknesses each metal supports are offered, and bending is optional.
+- **Customized lithium-ion battery packs.**
+- **Non-metal laser cutting:** acrylic 2–8 mm in colours, MDF, plywood, cardboard, leather and EVA foam.
+- **PCB manufacturing:** 1, 2 or 4 layers, mask colour, HASL or ENIG finish, stencil and assembly.
+
+Each service page lists its materials and capabilities. A battery pack can be built new (18650 / 21700 / LiFePO4, series × parallel, BMS, connector; the page shows voltage, Ah, Wh and weight) or an existing pack can be tested and repaired.
 - **For customers:**
   - The page shows an instant estimate from editable rates (Master → Settings → Services).
   - Customers can upload design files (STL, Gerber ZIP, DXF/SVG/PDF and so on; up to 5 files of 20 MB each).

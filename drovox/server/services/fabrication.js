@@ -4,31 +4,50 @@
 import { getSetting, round2 } from '../db.js';
 
 export const SERVICES = {
-  print3d: {
-    title: '3D Printing', icon: '🖨️', lead: '2–4 days',
-    blurb: 'FDM printing in PLA, PETG, ABS and TPU, plus resin (SLA) for fine detail. Upload STL/3MF/OBJ/STEP files.',
+  industrial3d: {
+    title: 'Industrial 3D Printing', short: 'Industrial 3D Print', icon: '🏭', lead: '4–7 days', order: 1,
+    blurb: 'Resin (SLA) and nylon (SLS / MJF) parts with fine detail, smooth surfaces and engineering strength — for prototypes, jigs, enclosures and short production runs.',
     files: ['stl', '3mf', 'obj', 'step', 'stp', 'zip'],
+    materials: ['Standard resin (SLA) — smooth, fine detail', 'Tough resin (SLA) — impact resistant', 'Clear resin (SLA) — transparent', 'Nylon PA12 (SLS) — strong, functional', 'Nylon PA12 (MJF) — production grade'],
+    features: ['Layer height down to 0.05 mm', 'Build volume up to 300 × 300 × 300 mm', 'Sanding, priming and painting on request', 'Engineering review of every file before printing'],
   },
-  pcb: {
-    title: 'PCB Manufacturing', icon: '🟩', lead: '7–12 days',
-    blurb: '1, 2 and 4-layer PCBs with HASL or ENIG finish, any solder mask colour, optional stencil and assembly. Upload Gerber ZIP.',
-    files: ['zip', 'rar', '7z', 'gbr', 'pdf'],
+  print3d: {
+    title: 'Online FDM 3D Printing', short: '3D Printing', icon: '🖨️', lead: '2–4 days', order: 2,
+    blurb: 'Affordable FDM printing in PLA, PETG, ABS and TPU for school projects, robot parts, enclosures and prototypes. Upload your file and get an instant price.',
+    files: ['stl', '3mf', 'obj', 'step', 'stp', 'zip'],
+    materials: ['PLA — easy, many colours', 'PETG — tough, heat resistant', 'ABS — strong, sandable', 'TPU — flexible / rubber-like'],
+    features: ['Layer heights 0.12 / 0.2 / 0.28 mm', 'Infill 5–100%', 'Build volume up to 250 × 250 × 250 mm', 'Same-week delivery across India'],
   },
-  laser: {
-    title: 'Laser Cutting & Engraving', icon: '🔥', lead: '1–3 days',
-    blurb: 'Precise cutting and engraving of MDF, plywood and cardboard for enclosures, models and school projects. Upload DXF/SVG/PDF/AI.',
-    files: ['dxf', 'svg', 'pdf', 'ai', 'cdr', 'png', 'jpg', 'jpeg', 'zip'],
-  },
-  acrylic: {
-    title: 'Acrylic Cutting', icon: '💎', lead: '1–3 days',
-    blurb: 'Clear and coloured acrylic in 2–8 mm for robot chassis, enclosures, nameplates and display stands. Upload DXF/SVG/PDF.',
-    files: ['dxf', 'svg', 'pdf', 'ai', 'cdr', 'png', 'jpg', 'jpeg', 'zip'],
+  metal_laser: {
+    title: 'Metal Laser Cutting', short: 'Metal Laser Cutting', icon: '⚙️', lead: '3–6 days', order: 3,
+    blurb: 'Fibre-laser cutting of mild steel, stainless steel, aluminium, brass and GI sheet — brackets, panels, chassis plates and enclosures, with optional bending.',
+    files: ['dxf', 'dwg', 'step', 'stp', 'pdf', 'zip'],
+    materials: ['Mild steel (MS) 0.8–6 mm', 'Stainless steel SS304 0.5–4 mm', 'Aluminium 0.8–4 mm', 'Brass 0.5–2 mm', 'Galvanised iron (GI) 0.5–2 mm'],
+    features: ['Tolerance about ±0.1 mm', 'Max sheet 1500 × 3000 mm', 'CNC bending available', 'Upload DXF in mm, 1:1 scale'],
   },
   battery: {
-    title: 'Battery Packs', icon: '🔋', lead: '2–5 days',
-    blurb: 'Custom Li-ion / LiFePO4 packs spot-welded with BMS for robots, drones, e-bikes and solar — or test and repair your existing pack.',
+    title: 'Customized Lithium-ion Battery Pack', short: 'Custom Battery Pack', icon: '🔋', lead: '2–5 days', order: 4,
+    blurb: 'Spot-welded Li-ion and LiFePO4 packs with BMS for robots, drones, e-bikes, solar and inverters — built to your voltage and capacity. We also test and repair packs.',
     files: ['pdf', 'png', 'jpg', 'jpeg'],
+    materials: ['18650 Li-ion (BIS-registered cells)', '21700 Li-ion (BIS-registered cells)', 'LiFePO4 32700'],
+    features: ['1S to 24S, any parallel count', 'BMS 10–80 A with balancing', 'XT60 / XT90 / Anderson / JST connectors', 'Capacity and IR test report with every pack'],
   },
+  laser: {
+    title: 'Non-Metal Laser Cutting', short: 'Laser Cutting', icon: '🔥', lead: '1–3 days', order: 5,
+    blurb: 'CO₂ laser cutting and engraving of acrylic, MDF, plywood, cardboard, leather and EVA foam — robot chassis, enclosures, nameplates, models and gifts.',
+    files: ['dxf', 'svg', 'pdf', 'ai', 'cdr', 'png', 'jpg', 'jpeg', 'zip'],
+    materials: ['Acrylic 2 / 3 / 5 / 8 mm (clear and colours)', 'MDF 3 / 6 mm', 'Plywood 4 mm', 'Cardboard 3 mm', 'Leather', 'EVA foam'],
+    features: ['Bed size 600 × 900 mm', 'Engraving of logos, text and photos', 'Kerf about 0.2 mm', 'Ideal for school and college projects'],
+  },
+  pcb: {
+    title: 'PCB Manufacturing', short: 'PCB Manufacturing', icon: '🟩', lead: '7–12 days', order: 6,
+    blurb: '1, 2 and 4-layer PCBs with HASL or ENIG finish in any solder-mask colour, with optional stencil and assembly. Upload your Gerber ZIP for an instant estimate.',
+    files: ['zip', 'rar', '7z', 'gbr', 'pdf'],
+    materials: ['FR-4 1 / 2 / 4 layers', 'Thickness 0.8–2.0 mm', 'HASL or ENIG finish', 'Green, black, blue, red, white, yellow mask'],
+    features: ['Free DFM check before production', 'SMT stencil available', 'Assembly (SMT + THT) on request', 'E-test on multi-layer boards'],
+  },
+  // Older request type kept so earlier requests still display; no longer offered separately.
+  acrylic: { title: 'Acrylic Cutting', short: 'Acrylic Cutting', icon: '💎', lead: '1–3 days', legacy: true, files: ['dxf', 'svg', 'pdf', 'ai', 'cdr', 'png', 'jpg', 'jpeg', 'zip'] },
 };
 export const SERVICE_STATUS = ['new', 'quoted', 'approved', 'in_production', 'ready', 'delivered', 'cancelled'];
 
@@ -43,9 +62,11 @@ const CELL = {
 };
 const SHEET = {
   acrylic: { '2': 'acrylic_2mm_cm2', '3': 'acrylic_3mm_cm2', '5': 'acrylic_5mm_cm2', '8': 'acrylic_8mm_cm2' },
-  laser: { 'mdf3': 'mdf_3mm_cm2', 'mdf6': 'mdf_6mm_cm2', 'ply4': 'ply_4mm_cm2', 'cardboard': 'cardboard_cm2' },
+  laser: { 'acr3': 'acrylic_3mm_cm2', 'acr2': 'acrylic_2mm_cm2', 'acr5': 'acrylic_5mm_cm2', 'acr8': 'acrylic_8mm_cm2', 'mdf3': 'mdf_3mm_cm2', 'mdf6': 'mdf_6mm_cm2', 'ply4': 'ply_4mm_cm2', 'cardboard': 'cardboard_cm2', 'leather': 'leather_cm2', 'eva': 'eva_foam_cm2' },
 };
-const SHEET_LABEL = { mdf3: 'MDF 3 mm', mdf6: 'MDF 6 mm', ply4: 'Plywood 4 mm', cardboard: 'Cardboard 3 mm' };
+const SHEET_LABEL = { acr2: 'Acrylic 2 mm', acr3: 'Acrylic 3 mm', acr5: 'Acrylic 5 mm', acr8: 'Acrylic 8 mm', mdf3: 'MDF 3 mm', mdf6: 'MDF 6 mm', ply4: 'Plywood 4 mm', cardboard: 'Cardboard 3 mm', leather: 'Leather', eva: 'EVA foam' };
+const RESIN = { sla_standard: ['Standard resin (SLA)', 'sla_standard_per_cm3'], sla_tough: ['Tough resin (SLA)', 'sla_tough_per_cm3'], sla_clear: ['Clear resin (SLA)', 'sla_clear_per_cm3'], sls_nylon: ['Nylon PA12 (SLS)', 'sls_nylon_per_cm3'], mjf_nylon: ['Nylon PA12 (MJF)', 'mjf_nylon_per_cm3'] };
+const METAL = { ms: ['Mild steel', 'ms_cm2_mm', [0.8, 1, 1.2, 1.5, 2, 3, 4, 5, 6]], ss: ['Stainless steel SS304', 'ss_cm2_mm', [0.5, 0.8, 1, 1.2, 1.5, 2, 3, 4]], al: ['Aluminium', 'al_cm2_mm', [0.8, 1, 1.5, 2, 3, 4]], brass: ['Brass', 'brass_cm2_mm', [0.5, 0.8, 1, 1.5, 2]], gi: ['Galvanised iron', 'gi_cm2_mm', [0.5, 0.8, 1, 1.2, 1.5, 2]] };
 
 /**
  * Validates options and returns an estimate.
@@ -103,16 +124,50 @@ export function estimate(service, raw = {}) {
     if (!(num(raw.width_mm) > 0 && num(raw.height_mm) > 0)) throw new SpecError('Enter the overall size of the part in mm');
     const cutM = clamp(num(raw.cut_length_m, 0) || round2(((w + h) * 2) / 1000), 0, 500);
     const engrave = clamp(num(raw.engrave_cm2, 0), 0, 100000);
-    const colour = String(raw.colour || (service === 'acrylic' ? 'Clear' : 'Natural')).slice(0, 30);
+    const colour = String(raw.colour || (service === 'acrylic' || String(raw.material || 'acr3').startsWith('acr') ? 'Clear' : 'Natural')).slice(0, 30);
     specs = { material, width_mm: w, height_mm: h, cut_length_m: cutM, engrave_cm2: engrave, colour };
     const area = (w * h) / 100;
-    const matLabel = service === 'acrylic' ? `Acrylic ${material} mm ${colour}` : SHEET_LABEL[material];
+    const matLabel = service === 'acrylic' ? `Acrylic ${material} mm ${colour}` : `${SHEET_LABEL[material]}${material.startsWith('acr') ? ` ${colour}` : ''}`;
     add(`${matLabel}: ${round2(area)} cm² × ${qty}`, area * qty * R[mats[material]]);
     add(`Cutting ${cutM} m × ${qty}`, cutM * qty * R.cut_per_m);
     if (engrave) add(`Engraving ${engrave} cm² × ${qty}`, engrave * qty * R.engrave_per_cm2);
     const sub = lines.reduce((s, l) => s + l.amount, 0);
     if (sub < R.cut_min) add('Minimum order top-up', R.cut_min - sub);
     summary = `${qty} × ${matLabel}, ${w}×${h} mm, ${cutM} m cut${engrave ? `, ${engrave} cm² engraving` : ''}`;
+  }
+
+  if (service === 'industrial3d') {
+    const material = RESIN[raw.material] ? raw.material : 'sla_standard';
+    const cm3 = clamp(num(raw.volume_cm3, 0), 0.1, 30000);
+    if (!(num(raw.volume_cm3) > 0)) throw new SpecError('Enter the part volume in cm³ (shown by your CAD or slicer software)');
+    const finish = ['standard', 'sanded', 'painted'].includes(raw.finish) ? raw.finish : 'standard';
+    const ff = { standard: 1, sanded: 1.25, painted: 1.6 }[finish];
+    specs = { material, volume_cm3: cm3, finish, colour: String(raw.colour || 'Natural').slice(0, 30) };
+    add(`${RESIN[material][0]} ${cm3} cm³ × ${qty}${finish !== 'standard' ? ` (${finish})` : ''}`, cm3 * R[RESIN[material][1]] * ff * qty);
+    add('Setup, supports & post-curing', R.industrial_setup);
+    const sub = lines.reduce((t, l) => t + l.amount, 0);
+    if (sub < R.industrial_min) add('Minimum order top-up', R.industrial_min - sub);
+    summary = `${qty} × ${RESIN[material][0]}, ${cm3} cm³, ${finish} finish`;
+  }
+
+  if (service === 'metal_laser') {
+    const material = METAL[raw.material] ? raw.material : 'ms';
+    const [mLabel, rateKey, thicknesses] = METAL[material];
+    const t = thicknesses.includes(num(raw.thickness)) ? num(raw.thickness) : thicknesses[Math.min(2, thicknesses.length - 1)];
+    const w = clamp(num(raw.width_mm), 10, 3000); const h = clamp(num(raw.height_mm), 10, 1500);
+    if (!(num(raw.width_mm) > 0 && num(raw.height_mm) > 0)) throw new SpecError('Enter the overall size of the part in mm');
+    const cutM = clamp(num(raw.cut_length_m, 0) || round2(((w + h) * 2) / 1000), 0, 1000);
+    const bends = clamp(Math.floor(num(raw.bends, 0)), 0, 50);
+    specs = { material, thickness: t, width_mm: w, height_mm: h, cut_length_m: cutM, bends };
+    info.thicknesses = thicknesses;
+    const area = (w * h) / 100;
+    add(`${mLabel} ${t} mm sheet: ${round2(area)} cm² × ${qty}`, area * t * R[rateKey] * qty);
+    add(`Fibre-laser cutting ${cutM} m × ${qty}`, cutM * R.metal_cut_per_m_mm * Math.max(1, t) * qty);
+    if (bends) add(`Bending ${bends} bend(s) × ${qty}`, bends * R.metal_bend_each * qty);
+    add('Setup & nesting', R.metal_setup);
+    const sub = lines.reduce((s2, l) => s2 + l.amount, 0);
+    if (sub < R.metal_min) add('Minimum order top-up', R.metal_min - sub);
+    summary = `${qty} × ${mLabel} ${t} mm, ${w}×${h} mm, ${cutM} m cut${bends ? `, ${bends} bends` : ''}`;
   }
 
   if (service === 'battery') {
@@ -147,5 +202,6 @@ export function estimate(service, raw = {}) {
 
 export function publicCatalog() {
   const R = getSetting('services');
-  return { enabled: !!R.enabled, gst_rate: R.gst_rate, services: Object.entries(SERVICES).map(([id, s]) => ({ id, ...s })) };
+  const services = Object.entries(SERVICES).filter(([, s]) => !s.legacy).map(([id, s]) => ({ id, ...s })).sort((a, b) => a.order - b.order);
+  return { enabled: !!R.enabled, gst_rate: R.gst_rate, services };
 }

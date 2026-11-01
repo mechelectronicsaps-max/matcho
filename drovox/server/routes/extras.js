@@ -86,6 +86,7 @@ const PARTNER_TYPES = {
   makerspace: 'Makerspace, trainer or robotics academy',
   integrator: 'System integrator / industrial buyer',
   affiliate: 'YouTuber, blogger or affiliate',
+  seller: 'Brand / manufacturer — sell on Drovox',
 };
 const defaultDiscount = (type) => Number(getSetting('partners')[`${type}_discount`] || 0);
 

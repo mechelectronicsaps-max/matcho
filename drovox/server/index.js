@@ -8,6 +8,7 @@ import { store, razorpayWebhook } from './routes/store.js';
 import { stock } from './routes/stock.js';
 import { admin } from './routes/admin.js';
 import { extras, servicesStaff, partnersAdmin } from './routes/extras.js';
+import { content, contentAdmin, SITE_UPLOADS_DIR } from './routes/content.js';
 import { startScheduler } from './services/jobs.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -26,13 +27,16 @@ export function createApp() {
   app.post('/api/webhooks/razorpay', express.raw({ type: '*/*', limit: '1mb' }), razorpayWebhook);
   // Service requests carry design files (STL, Gerber, DXF…) as base64, so they get a larger limit.
   app.use('/api/services/requests', express.json({ limit: '130mb' }));
+  app.use(['/api/jobs', '/api/admin/content'], express.json({ limit: '8mb' }));
   app.use(express.json({ limit: '1mb' }));
   app.use('/api', attachUser);
   app.use('/api/stock/services', servicesStaff);
   app.use('/api/stock', stock);
   app.use('/api/admin/partners', partnersAdmin);
+  app.use('/api/admin/content', contentAdmin);
   app.use('/api/admin', admin);
   app.use('/api', extras);
+  app.use('/api', content);
   app.use('/api', store);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
@@ -50,6 +54,7 @@ export function createApp() {
   };
   for (const [route, file] of [['/', 'index.html'], ['/index.html', 'index.html'], ['/stockist', 'stockist.html'], ['/stockist.html', 'stockist.html'], ['/master', 'master.html'], ['/master.html', 'master.html']]) app.get(route, page(file));
   app.use('/v/:build', express.static(PUBLIC, { maxAge: '30d', immutable: true }));
+  app.use('/uploads/site', express.static(SITE_UPLOADS_DIR, { maxAge: '7d' }));
   app.use(express.static(PUBLIC, { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 
 

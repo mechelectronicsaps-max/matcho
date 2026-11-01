@@ -305,6 +305,33 @@ CREATE TABLE IF NOT EXISTS partner_applications (
   created_at TEXT NOT NULL DEFAULT (datetime('now')), reviewed_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS banners (                      -- home page slider
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL, subtitle TEXT, cta_text TEXT, link TEXT, bg TEXT NOT NULL DEFAULT '#13203A', image TEXT,
+  sort INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS reviews (                      -- "Backed trust" section; real customer reviews entered by staff
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL, rating INTEGER NOT NULL DEFAULT 5, text TEXT NOT NULL, review_date TEXT,
+  source TEXT NOT NULL DEFAULT 'Google', verified INTEGER NOT NULL DEFAULT 1, active INTEGER NOT NULL DEFAULT 1, sort INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS posts (                        -- blog
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug TEXT NOT NULL UNIQUE, title TEXT NOT NULL, excerpt TEXT, body TEXT NOT NULL, cover TEXT, tags TEXT,
+  published INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS jobs (                         -- careers
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL, location TEXT, type TEXT, description TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS job_applications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id INTEGER REFERENCES jobs(id), name TEXT NOT NULL, phone TEXT NOT NULL, email TEXT, message TEXT,
+  resume TEXT, status TEXT NOT NULL DEFAULT 'new', created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS ai_sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER, idea TEXT NOT NULL, result TEXT NOT NULL, engine TEXT NOT NULL,
@@ -387,9 +414,15 @@ export const DEFAULT_SETTINGS = {
   courier: { provider: 'manual', shiprocket_email: '', shiprocket_password: '', tracking_url: 'https://www.shiprocket.in/shipment-tracking/?awb={awb}' },
   ai: { enabled: true, anthropic_api_key: '', model: 'claude-opus-5-5' },
   inventory: { safety_days: 7, target_cover_days: 45, low_stock_default: 10 },
+  site: {                                          // header, footer and home page
+    toll_free: '', support_hours: 'Mon–Sat, 10 AM – 7 PM',
+    facebook_url: '', x_url: '', linkedin_url: '', instagram_url: '', youtube_url: '',
+    google_reviews_url: '', reviews_title: 'Backed trust in every order',
+    show_services_on_home: true, banner_seconds: 5,
+  },
   partners: {
     enabled: true,
-    reseller_discount: 10, institution_discount: 8, makerspace_discount: 8, integrator_discount: 7, affiliate_discount: 5,
+    reseller_discount: 10, institution_discount: 8, makerspace_discount: 8, integrator_discount: 7, affiliate_discount: 5, seller_discount: 0,
     max_discount: 25,
   },
   services: {                                      // estimate rates in ₹ (GST extra); staff send the final quote
@@ -405,6 +438,13 @@ export const DEFAULT_SETTINGS = {
     // Battery packs: cell prices (BIS-registered cells bought in India), BMS and assembly
     cell_18650: 140, cell_21700: 260, cell_lfp_32700: 420, bms_base: 120, bms_per_s: 35, bms_per_10a: 60,
     assembly_per_cell: 15, pack_base: 150, battery_test_fee: 199,
+    // Industrial 3D printing, per cm³ of part volume
+    sla_standard_per_cm3: 18, sla_tough_per_cm3: 26, sla_clear_per_cm3: 28, sls_nylon_per_cm3: 22, mjf_nylon_per_cm3: 24, industrial_setup: 300, industrial_min: 499,
+    // Metal laser cutting: material per cm²·mm, cutting per metre per mm of thickness
+    ms_cm2_mm: 0.012, ss_cm2_mm: 0.045, al_cm2_mm: 0.03, brass_cm2_mm: 0.09, gi_cm2_mm: 0.015,
+    metal_cut_per_m_mm: 22, metal_bend_each: 15, metal_setup: 300, metal_min: 499,
+    // Extra non-metal materials
+    leather_cm2: 0.08, eva_foam_cm2: 0.03,
   },
 };
 

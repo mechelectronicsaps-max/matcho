@@ -1,5 +1,5 @@
 // Drovox master panel: analytics, orders, CRM, marketing, GST, WhatsApp, users, audit, automation and settings.
-import { $, $$, api, esc, money, num, toast, modal, badge, ago, dt, formData, barChart, rankBars, downloadCsv } from './common.js';
+import { $, $$, api, esc, money, num, toast, modal, badge, ago, dt, formData, barChart, rankBars, downloadCsv, downloadAuthed } from './common.js';
 import { startPanel, head, kpi } from './panel.js';
 import { openOrder } from './orders-ui.js';
 
@@ -111,7 +111,7 @@ async function customer360(id, reload) {
 async function crm(el) {
   const d = await api(`${A}/leads`);
   const label = { new: 'New', contacted: 'Contacted', qualified: 'Qualified', proposal: 'Proposal sent', won: 'Won', lost: 'Lost' };
-  const src = { bulk_quote: '📦 bulk quote', ai_builder: '✨ AI builder', website: '🌐 website', whatsapp: '💬 WhatsApp', referral: '🤝 referral', manual: '✍️ manual' };
+  const src = { bulk_quote: '📦 bulk quote', atl: '🏫 ATL enquiry', partner: '🤝 partner', ai_builder: '✨ AI builder', website: '🌐 website', whatsapp: '💬 WhatsApp', referral: '🤝 referral', manual: '✍️ manual' };
   const today = new Date().toISOString().slice(0, 10);
   el.innerHTML = `${head('CRM — leads pipeline', '<button class="btn" id="csv">⬇ CSV</button><button class="btn primary" id="new">+ New lead</button>')}
     <div class="grid g4" style="margin-bottom:16px">${kpi('Open pipeline', money(d.pipeline.filter((p) => !['won', 'lost'].includes(p.stage)).reduce((s, p) => s + p.value, 0)))}${kpi('Won', money(d.pipeline.find((p) => p.stage === 'won').value))}
@@ -294,6 +294,60 @@ async function greetings(el, params) {
   }; });
 }
 
+// ------------------------------------------------------------------ website content
+const CONTENT = {
+  banners: { label: '🖼️ Home banners', cols: [['title', 'Title'], ['subtitle', 'Subtitle'], ['link', 'Link'], ['sort', 'Order'], ['active', 'Live']],
+    form: (r) => `<label class="f full">Headline<input name="title" required value="${esc(r.title || '')}"></label><label class="f full">Subtitle<input name="subtitle" value="${esc(r.subtitle || '')}"></label>
+      <label class="f">Button text<input name="cta_text" value="${esc(r.cta_text || 'Shop now')}"></label><label class="f">Button link<input name="link" value="${esc(r.link || '#/search')}" placeholder="#/c/drone or https://…"></label>
+      <label class="f">Background colour<input name="bg" type="color" value="${esc(r.bg || '#13203A')}"></label><label class="f">Order<input name="sort" type="number" value="${r.sort ?? 0}"></label>
+      <label class="f full">Banner image (optional, replaces the text; 1600×500 px, JPG/PNG/WebP, max 3 MB)<input type="file" id="img" accept="image/png,image/jpeg,image/webp"></label>
+      ${r.image ? `<div class="full"><img src="/uploads/site/${encodeURIComponent(r.image)}" alt="Current banner" style="max-width:100%;border-radius:10px"><label class="check"><input type="checkbox" name="remove_image"> Remove image</label></div>` : ''}
+      <label class="check full"><input type="checkbox" name="active" ${r.active !== 0 ? 'checked' : ''}> Show on the home page</label>` },
+  reviews: { label: '⭐ Reviews', cols: [['name', 'Name'], ['rating', 'Stars'], ['text', 'Review'], ['source', 'Source'], ['active', 'Live']],
+    note: 'Add real reviews only — copy them from your Google Business profile or customer feedback, with the customer’s name as shown there.',
+    form: (r) => `<label class="f">Customer name<input name="name" required value="${esc(r.name || '')}"></label><label class="f">Stars<select name="rating">${[5, 4, 3, 2, 1].map((n) => `<option ${Number(r.rating || 5) === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label class="f full">Review text<textarea name="text" rows="3" required>${esc(r.text || '')}</textarea></label><label class="f">Date<input name="review_date" type="date" value="${esc(r.review_date || '')}"></label>
+      <label class="f">Source<select name="source">${['Google', 'Website', 'WhatsApp', 'Amazon', 'IndiaMART'].map((x) => `<option ${r.source === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label><label class="f">Order<input name="sort" type="number" value="${r.sort ?? 0}"></label>
+      <label class="check"><input type="checkbox" name="verified" ${r.verified !== 0 ? 'checked' : ''}> Verified purchase</label><label class="check full"><input type="checkbox" name="active" ${r.active !== 0 ? 'checked' : ''}> Show on the home page</label>` },
+  posts: { label: '📝 Blog', cols: [['title', 'Title'], ['excerpt', 'Summary'], ['published', 'Published'], ['created_at', 'Date']],
+    form: (r) => `<label class="f full">Title<input name="title" required value="${esc(r.title || '')}"></label><label class="f">Cover emoji<input name="cover" maxlength="4" value="${esc(r.cover || '📝')}"></label><label class="f">Tags<input name="tags" value="${esc(r.tags || '')}" placeholder="arduino, tutorial"></label>
+      <label class="f full">Summary<input name="excerpt" value="${esc(r.excerpt || '')}"></label><label class="f full">Article (blank line = new paragraph, start a line with “## ” for a heading)<textarea name="body" rows="12" required>${esc(r.body || '')}</textarea></label>
+      <label class="check full"><input type="checkbox" name="published" ${r.published !== 0 ? 'checked' : ''}> Published</label>` },
+  jobs: { label: '💼 Careers', cols: [['title', 'Role'], ['location', 'Location'], ['type', 'Type'], ['active', 'Open']],
+    form: (r) => `<label class="f full">Role<input name="title" required value="${esc(r.title || '')}"></label><label class="f">Location<input name="location" value="${esc(r.location || '')}"></label>
+      <label class="f">Type<select name="type">${['Full-time', 'Part-time', 'Internship', 'Contract'].map((x) => `<option ${r.type === x ? 'selected' : ''}>${x}</option>`).join('')}</select></label>
+      <label class="f full">Description (responsibilities, skills, salary range)<textarea name="description" rows="8" required>${esc(r.description || '')}</textarea></label><label class="check full"><input type="checkbox" name="active" ${r.active !== 0 ? 'checked' : ''}> Accepting applications</label>` },
+};
+async function website(el, params) {
+  const tab = params.get('tab') || 'banners'; const C = CONTENT[tab] ? CONTENT[tab] : null;
+  el.innerHTML = `${head('Website content', '<a class="btn" href="#/settings?tab=site">⚙️ Header, social & reviews link</a><a class="btn" href="/" target="_blank">View store ↗</a>')}
+    <div class="tabs">${Object.entries(CONTENT).map(([k, v]) => `<a href="#/website?tab=${k}" class="${k === tab ? 'on' : ''}">${v.label}</a>`).join('')}<a href="#/website?tab=applications" class="${tab === 'applications' ? 'on' : ''}">📄 Job applications</a></div><div id="wc"></div>`;
+  const wc = $('#wc');
+  if (tab === 'applications') {
+    const rows = await api(`${A}/content/applications/list`);
+    wc.innerHTML = `<div class="card table-wrap"><table class="t"><thead><tr><th>Applicant</th><th>Role</th><th>Message</th><th>Received</th><th></th></tr></thead><tbody>${rows.map((a) => `<tr><td><b>${esc(a.name)}</b><div class="tiny muted">${esc(a.phone)} ${esc(a.email || '')}</div></td><td>${esc(a.job || '')}</td><td class="small">${esc((a.message || '').slice(0, 160))}</td><td class="small">${ago(a.created_at)}</td><td>${a.resume ? `<button class="btn sm" data-cv="${a.id}" data-n="${esc(a.name)}">Resume</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No applications yet</td></tr>'}</tbody></table></div>`;
+    $$('[data-cv]', wc).forEach((b) => { b.onclick = () => downloadAuthed(`${A}/content/applications/${b.dataset.cv}/resume`, `${b.dataset.n}-resume`).catch((e) => toast(e.message, 'err')); });
+    return;
+  }
+  const rows = await api(`${A}/content/${tab}`);
+  wc.innerHTML = `${C.note ? `<div class="banner brand" style="margin-bottom:12px"><div class="small">${C.note}</div></div>` : ''}<div class="row" style="margin-bottom:12px"><button class="btn primary" id="new">+ Add</button></div>
+    <div class="card table-wrap"><table class="t"><thead><tr>${C.cols.map(([, l]) => `<th>${l}</th>`).join('')}<th></th></tr></thead><tbody>
+    ${rows.map((r) => `<tr>${C.cols.map(([k]) => `<td class="small">${['active', 'published'].includes(k) ? (r[k] ? '<span class="badge green">yes</span>' : '<span class="badge">no</span>') : k === 'rating' ? '★'.repeat(r[k]) : esc(String(r[k] ?? '').slice(0, 90))}</td>`).join('')}
+      <td class="nowrap"><button class="btn sm" data-ed="${r.id}">Edit</button> <button class="btn sm danger" data-del="${r.id}">Delete</button></td></tr>`).join('') || `<tr><td colspan="${C.cols.length + 1}" class="muted">Nothing here yet</td></tr>`}</tbody></table></div>`;
+  const open = (r) => {
+    const m = modal(`<h2>${r.id ? 'Edit' : 'Add'} — ${C.label.replace(/^\S+\s/, '')}</h2><form class="form two">${C.form(r)}<button class="btn primary full">Save</button></form>`, { wide: true });
+    $('form', m.el).onsubmit = async (e) => {
+      e.preventDefault(); const f = formData(e.target);
+      const file = $('#img', m.el)?.files?.[0];
+      if (file) { if (file.size > 3 * 1048576) return toast('Image must be under 3 MB', 'err'); f.image_data = await new Promise((ok) => { const rd = new FileReader(); rd.onload = () => ok(rd.result); rd.readAsDataURL(file); }); }
+      try { await api(r.id ? `${A}/content/${tab}/${r.id}` : `${A}/content/${tab}`, { method: r.id ? 'PUT' : 'POST', body: f }); toast('Saved'); m.close(); website(el, params); } catch (err) { toast(err.message, 'err'); }
+    };
+  };
+  $('#new').onclick = () => open({});
+  $$('[data-ed]', wc).forEach((b) => { b.onclick = () => open(rows.find((r) => r.id === Number(b.dataset.ed))); });
+  $$('[data-del]', wc).forEach((b) => { b.onclick = async () => { if (!confirm('Delete this item?')) return; await api(`${A}/content/${tab}/${b.dataset.del}`, { method: 'DELETE' }); toast('Deleted'); website(el, params); }; });
+}
+
 // ------------------------------------------------------------------ partners
 async function partners(el) {
   const d = await api(`${A}/partners`);
@@ -380,13 +434,18 @@ const SETTINGS_UI = {
   courier: ['Courier', { provider: 'Provider (manual / shiprocket)', shiprocket_email: 'Shiprocket email', shiprocket_password: 'Shiprocket password', tracking_url: 'Tracking URL template ({awb})' }],
   loyalty: ['Loyalty & referrals', { earn_per_100: 'Points per ₹100 spent', point_value: '₹ value of 1 point', max_redeem_pct: 'Max % of order payable with points', signup_bonus: 'Signup bonus points', referrer_bonus: 'Referrer bonus (on friend\'s first delivery)', referee_bonus: 'New friend bonus', daily_checkin: 'Daily check-in points', streak_bonus_7: '7-day streak bonus' }],
   engagement: ['Engagement', { welcome_coupon: 'Welcome coupon code', exit_intent: 'Show exit-intent offer to new visitors', social_proof: 'Show real-time social proof on product pages', abandoned_cart_hours: 'Abandoned cart reminder after (hours)', abandoned_cart_coupon: 'Abandoned cart coupon', unpaid_cancel_minutes: 'Cancel unpaid online orders after (minutes)' }],
+  site: ['Website', { toll_free: 'Toll-free / support number in the top bar', support_hours: 'Support hours', facebook_url: 'Facebook URL', x_url: 'X (Twitter) URL', linkedin_url: 'LinkedIn URL', instagram_url: 'Instagram URL', youtube_url: 'YouTube URL',
+    google_reviews_url: 'Google reviews link (Google Business profile)', reviews_title: 'Reviews section title', show_services_on_home: 'Show services cards on the home page', banner_seconds: 'Banner slide time (seconds)' }],
   partners: ['Partners', { enabled: 'Accept partner applications', reseller_discount: 'Reseller / dealer discount %', institution_discount: 'School / college / ATL discount %', makerspace_discount: 'Makerspace / academy discount %', integrator_discount: 'Integrator / industrial discount %', affiliate_discount: 'Affiliate / creator discount %', max_discount: 'Maximum partner discount allowed %' }],
   services: ['Services', { enabled: 'Accept service requests (3D print, PCB, laser, acrylic, battery)', gst_rate: 'GST % on services',
     pla_per_g: '3D print PLA ₹/g', petg_per_g: 'PETG ₹/g', abs_per_g: 'ABS ₹/g', tpu_per_g: 'TPU ₹/g', resin_per_g: 'Resin ₹/g', print_setup: '3D print setup ₹/order', print_min: '3D print minimum order ₹',
     pcb_setup: 'PCB setup ₹/design', pcb_1l_cm2: 'PCB 1-layer ₹/cm²', pcb_2l_cm2: 'PCB 2-layer ₹/cm²', pcb_4l_cm2: 'PCB 4-layer ₹/cm²', pcb_color_extra: 'PCB non-green mask ₹', pcb_enig_extra: 'PCB ENIG ₹', pcb_stencil: 'SMT stencil ₹', pcb_assembly_per_board: 'PCB assembly labour ₹/board',
     acrylic_2mm_cm2: 'Acrylic 2 mm ₹/cm²', acrylic_3mm_cm2: 'Acrylic 3 mm ₹/cm²', acrylic_5mm_cm2: 'Acrylic 5 mm ₹/cm²', acrylic_8mm_cm2: 'Acrylic 8 mm ₹/cm²', mdf_3mm_cm2: 'MDF 3 mm ₹/cm²', mdf_6mm_cm2: 'MDF 6 mm ₹/cm²', ply_4mm_cm2: 'Plywood 4 mm ₹/cm²', cardboard_cm2: 'Cardboard ₹/cm²',
     cut_per_m: 'Laser cutting ₹/metre', engrave_per_cm2: 'Engraving ₹/cm²', cut_min: 'Cutting minimum order ₹',
-    cell_18650: '18650 cell ₹ (BIS)', cell_21700: '21700 cell ₹ (BIS)', cell_lfp_32700: 'LiFePO4 32700 cell ₹', bms_base: 'BMS base ₹', bms_per_s: 'BMS ₹ per series cell', bms_per_10a: 'BMS ₹ per 10 A', assembly_per_cell: 'Spot-weld assembly ₹/cell', pack_base: 'Pack base charge ₹', battery_test_fee: 'Battery test fee ₹/pack' }],
+    cell_18650: '18650 cell ₹ (BIS)', cell_21700: '21700 cell ₹ (BIS)', cell_lfp_32700: 'LiFePO4 32700 cell ₹', bms_base: 'BMS base ₹', bms_per_s: 'BMS ₹ per series cell', bms_per_10a: 'BMS ₹ per 10 A', assembly_per_cell: 'Spot-weld assembly ₹/cell', pack_base: 'Pack base charge ₹', battery_test_fee: 'Battery test fee ₹/pack',
+    sla_standard_per_cm3: 'Industrial: standard resin ₹/cm³', sla_tough_per_cm3: 'Tough resin ₹/cm³', sla_clear_per_cm3: 'Clear resin ₹/cm³', sls_nylon_per_cm3: 'SLS nylon ₹/cm³', mjf_nylon_per_cm3: 'MJF nylon ₹/cm³', industrial_setup: 'Industrial setup ₹', industrial_min: 'Industrial minimum ₹',
+    ms_cm2_mm: 'Metal: mild steel ₹/cm²·mm', ss_cm2_mm: 'Stainless ₹/cm²·mm', al_cm2_mm: 'Aluminium ₹/cm²·mm', brass_cm2_mm: 'Brass ₹/cm²·mm', gi_cm2_mm: 'GI ₹/cm²·mm', metal_cut_per_m_mm: 'Metal cutting ₹ per metre per mm', metal_bend_each: 'Bending ₹ per bend', metal_setup: 'Metal setup ₹', metal_min: 'Metal minimum ₹',
+    leather_cm2: 'Leather ₹/cm²', eva_foam_cm2: 'EVA foam ₹/cm²' }],
   inventory: ['Inventory', { safety_days: 'Safety stock (days)', target_cover_days: 'Reorder to cover (days)', low_stock_default: 'Default reorder level' }],
 };
 const SELECTS = { provider: [['myrc', 'msg.myrc.in gateway'], ['meta', 'Meta WhatsApp Cloud API']] };
@@ -432,6 +491,7 @@ startPanel({
     { id: 'marketing', label: 'Marketing', icon: '📣', group: 'Growth', area: 'marketing' },
     { id: 'greetings', label: 'Greetings', icon: '🎂', group: 'Growth', area: 'customers' },
     { id: 'partners', label: 'Partners', icon: '🤝', group: 'Growth', area: 'marketing' },
+    { id: 'website', label: 'Website content', icon: '🖼️', group: 'Growth', area: 'marketing' },
     { id: 'whatsapp', label: 'WhatsApp', icon: '💬', group: 'Growth', area: 'whatsapp' },
     { id: 'gst', label: 'GST reports', icon: '🏛️', group: 'Admin', area: 'admin' },
     { id: 'users', label: 'Users & roles', icon: '🔐', group: 'Admin', area: 'admin' },
@@ -439,5 +499,5 @@ startPanel({
     { id: 'automation', label: 'Automation', icon: '⚙️', group: 'Admin', area: 'admin' },
     { id: 'settings', label: 'Settings', icon: '🛠️', group: 'Admin', area: 'admin' },
   ],
-  pages: { dashboard, inventory, orders, customers, crm, marketing, gst, greetings, partners, whatsapp, users, audit, automation, settings },
+  pages: { dashboard, inventory, orders, customers, crm, marketing, gst, greetings, partners, website, whatsapp, users, audit, automation, settings },
 });

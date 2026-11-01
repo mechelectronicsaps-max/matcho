@@ -7,8 +7,24 @@ export const serviceBadge = (s) => badge(STATUS_COLOR[s] || '', STATUS_LABEL[s] 
 
 // Option fields per service. `show` hides a field unless it applies to the chosen options.
 const F = {
+  industrial3d: [
+    { name: 'material', label: 'Material / process', type: 'select', options: [['sla_standard', 'Standard resin (SLA)'], ['sla_tough', 'Tough resin (SLA)'], ['sla_clear', 'Clear resin (SLA)'], ['sls_nylon', 'Nylon PA12 (SLS)'], ['mjf_nylon', 'Nylon PA12 (MJF)']] },
+    { name: 'volume_cm3', label: 'Part volume (cm³) — from your CAD / slicer', type: 'number', value: 20, min: 0.1 },
+    { name: 'finish', label: 'Finish', type: 'select', options: [['standard', 'Standard (supports removed)'], ['sanded', 'Sanded smooth'], ['painted', 'Primed & painted']] },
+    { name: 'colour', label: 'Colour (painted parts)', type: 'text', value: 'Natural' },
+    { name: 'quantity', label: 'Quantity', type: 'number', value: 1, min: 1 },
+  ],
+  metal_laser: [
+    { name: 'material', label: 'Metal', type: 'select', options: [['ms', 'Mild steel (MS)'], ['ss', 'Stainless steel SS304'], ['al', 'Aluminium'], ['brass', 'Brass'], ['gi', 'Galvanised iron (GI)']] },
+    { name: 'thickness', label: 'Thickness (mm)', type: 'select', options: [['1.2', '1.2']], dyn: (v) => ({ ms: [0.8, 1, 1.2, 1.5, 2, 3, 4, 5, 6], ss: [0.5, 0.8, 1, 1.2, 1.5, 2, 3, 4], al: [0.8, 1, 1.5, 2, 3, 4], brass: [0.5, 0.8, 1, 1.5, 2], gi: [0.5, 0.8, 1, 1.2, 1.5, 2] }[v.material] || [1]).map((t) => [String(t), t.toFixed(1)]) },
+    { name: 'width_mm', label: 'Part width (mm)', type: 'number', value: 200, min: 10 },
+    { name: 'height_mm', label: 'Part height (mm)', type: 'number', value: 100, min: 10 },
+    { name: 'cut_length_m', label: 'Total cut length (m) — blank = outline only', type: 'number', min: 0, step: 'any' },
+    { name: 'bends', label: 'Number of bends per part', type: 'number', value: 0, min: 0 },
+    { name: 'quantity', label: 'Quantity', type: 'number', value: 1, min: 1 },
+  ],
   print3d: [
-    { name: 'material', label: 'Material', type: 'select', options: [['pla', 'PLA — general purpose'], ['petg', 'PETG — tough, heat resistant'], ['abs', 'ABS — strong, sandable'], ['tpu', 'TPU — flexible'], ['resin', 'Resin (SLA) — fine detail']] },
+    { name: 'material', label: 'Material', type: 'select', options: [['pla', 'PLA — general purpose'], ['petg', 'PETG — tough, heat resistant'], ['abs', 'ABS — strong, sandable'], ['tpu', 'TPU — flexible']] },
     { name: 'grams', label: 'Weight per part (g) — shown by your slicer', type: 'number', value: 50, min: 1 },
     { name: 'quality', label: 'Quality', type: 'select', options: [['standard', 'Standard 0.2 mm'], ['draft', 'Draft 0.28 mm'], ['fine', 'Fine 0.12 mm']] },
     { name: 'infill', label: 'Infill %', type: 'number', value: 20, min: 5 },
@@ -27,7 +43,8 @@ const F = {
     { name: 'assembly', label: 'I need assembly (we quote components separately)', type: 'check' },
   ],
   laser: [
-    { name: 'material', label: 'Material', type: 'select', options: [['mdf3', 'MDF 3 mm'], ['mdf6', 'MDF 6 mm'], ['ply4', 'Plywood 4 mm'], ['cardboard', 'Cardboard 3 mm']] },
+    { name: 'material', label: 'Material', type: 'select', options: [['acr3', 'Acrylic 3 mm'], ['acr2', 'Acrylic 2 mm'], ['acr5', 'Acrylic 5 mm'], ['acr8', 'Acrylic 8 mm'], ['mdf3', 'MDF 3 mm'], ['mdf6', 'MDF 6 mm'], ['ply4', 'Plywood 4 mm'], ['cardboard', 'Cardboard 3 mm'], ['leather', 'Leather'], ['eva', 'EVA foam']] },
+    { name: 'colour', label: 'Acrylic colour', type: 'select', options: [['Clear', 'Clear'], ['Black', 'Black'], ['White', 'Opal white'], ['Red', 'Red'], ['Blue', 'Blue'], ['Yellow', 'Yellow'], ['Fluorescent', 'Fluorescent'], ['Frosted', 'Frosted']], show: (v) => String(v.material).startsWith('acr') },
     { name: 'width_mm', label: 'Part width (mm)', type: 'number', value: 200, min: 10 },
     { name: 'height_mm', label: 'Part height (mm)', type: 'number', value: 150, min: 10 },
     { name: 'cut_length_m', label: 'Total cut length (m) — blank = outline only', type: 'number', min: 0, step: 'any' },
@@ -74,7 +91,8 @@ export async function pageServices(app, S, parts, setTitle) {
     app.innerHTML = `<div class="hero" style="grid-template-columns:1fr"><div><span class="badge brand">Drovox Services</span><h1 style="margin-top:10px">We make the parts you can’t buy</h1>
       <p>Upload your design, see an instant estimate, and get a final quote on WhatsApp. 3D printing, PCBs, laser and acrylic cutting, and custom battery packs — made in India with a GST invoice.</p></div></div>
       ${cat.enabled ? '' : '<div class="banner brand section"><div>Services are paused right now — you can still send a request and we’ll reply when we reopen.</div></div>'}
-      <div class="grid g3 section">${cat.services.map((s) => `<a class="card" href="#/services/${s.id}" style="display:flex;flex-direction:column;gap:8px"><div style="font-size:2.4rem">${s.icon}</div><h3 style="margin:0">${esc(s.title)}</h3><p class="small muted" style="margin:0">${esc(s.blurb)}</p><div class="row between" style="margin-top:auto"><span class="badge">⏱ ${esc(s.lead)}</span><span class="link small">Get estimate →</span></div></a>`).join('')}
+      <div class="svc-cards section">${cat.services.map((s) => `<a class="svc-card" href="#/services/${s.id}"><div class="txt"><h3>Drovox ${esc(s.title)}</h3><p class="small muted" style="margin:0">${esc(s.blurb)}</p><div class="row"><span class="btn indigo sm">Order now</span><span class="badge">⏱ ${esc(s.lead)}</span></div></div><div class="pic">${s.icon}</div></a>`).join('')}</div>
+      <div class="grid g3 section">
         <a class="card" href="#/partner" style="display:flex;flex-direction:column;gap:8px;background:var(--ink);color:var(--bg)"><div style="font-size:2.4rem">🤝</div><h3 style="margin:0">Become a Partner</h3><p class="small" style="margin:0;opacity:.85">Resellers, schools, makerspaces and integrators get a fixed partner discount on every order.</p><span class="small" style="margin-top:auto;color:#ffb347">Apply now →</span></a></div>
       <div class="card section"><h3>How it works</h3><ol class="small" style="margin:0;padding-left:18px;line-height:1.9"><li>Choose options and upload your files — you see an estimate instantly.</li><li>Our engineers check the design and send the final quote on WhatsApp.</li><li>Approve the quote from <a class="link" href="#/account">My Account</a> (or reply YES on WhatsApp).</li><li>We produce it, message you when it’s ready, and ship or keep it for pickup.</li></ol></div>`;
     return;
@@ -84,7 +102,10 @@ export async function pageServices(app, S, parts, setTitle) {
   const fields = F[id];
   app.innerHTML = `<div class="small muted" style="margin-bottom:12px"><a href="#/services">Services</a> / ${esc(svc.title)}</div>
     <div class="cart-layout"><form id="sf" class="stack">
-      <div class="card"><h1 style="margin:0 0 6px">${svc.icon} ${esc(svc.title)}</h1><p class="muted">${esc(svc.blurb)}</p><div class="form two">${fields.map(field).join('')}</div></div>
+      <div class="card"><h1 style="margin:0 0 6px">${svc.icon} ${esc(svc.title)}</h1><p class="muted">${esc(svc.blurb)}</p>
+        <div class="grid g2" style="margin:10px 0 16px"><div><div class="f">Materials</div><ul class="small" style="margin:6px 0 0;padding-left:18px">${(svc.materials || []).map((m) => `<li>${esc(m)}</li>`).join('')}</ul></div>
+          <div><div class="f">Capabilities</div><ul class="small" style="margin:6px 0 0;padding-left:18px">${(svc.features || []).map((m) => `<li>${esc(m)}</li>`).join('')}<li>Usually ready in ${esc(svc.lead)}</li></ul></div></div>
+        <h3>Configure & get an instant price</h3><div class="form two">${fields.map(field).join('')}</div></div>
       <div class="card"><h3>Design files</h3><p class="small muted">Accepted: ${svc.files.map((x) => `.${x}`).join(' ')} · up to 5 files, 20 MB each. ${id === 'battery' ? 'Optional: a photo or datasheet.' : 'Zip several files together if needed.'}</p>
         <input type="file" id="files" multiple accept="${svc.files.map((x) => `.${x}`).join(',')}"><div id="flist" class="small" style="margin-top:6px"></div></div>
       <div class="card"><h3>Your details</h3><div class="form two"><label class="f">Name<input name="name" required value="${esc(S.user?.name || '')}"></label><label class="f">WhatsApp number<input name="phone" required inputmode="tel" value="${esc(S.user?.phone || '')}"></label>
@@ -95,7 +116,17 @@ export async function pageServices(app, S, parts, setTitle) {
     <div class="sticky"><div class="card" id="est"><div class="skeleton" style="min-height:220px"></div></div></div></div>`;
   const form = $('#sf');
   const values = () => { const v = formData(form); for (const f of fields) if (f.type === 'check') v[f.name] = !!v[f.name]; return v; };
-  const toggle = () => { const v = values(); for (const f of fields) $(`[data-field="${f.name}"]`, form).classList.toggle('hidden', !!f.show && !f.show(v)); };
+  const toggle = () => {
+    const v = values();
+    for (const f of fields) {
+      $(`[data-field="${f.name}"]`, form).classList.toggle('hidden', !!f.show && !f.show(v));
+      if (f.dyn) {   // options that depend on another choice (e.g. thickness per metal)
+        const sel = form.elements[f.name]; const opts = f.dyn(v); const keep = opts.some(([o]) => o === sel.value) ? sel.value : opts[Math.min(2, opts.length - 1)][0];
+        if (opts.map(([o]) => o).join() !== [...sel.options].map((o) => o.value).join()) sel.innerHTML = opts.map(([o, l]) => `<option value="${esc(o)}">${esc(l)}</option>`).join('');
+        sel.value = keep;
+      }
+    }
+  };
   let t; let last = null;
   const refresh = () => {
     toggle(); clearTimeout(t);
@@ -135,8 +166,9 @@ export async function pageServices(app, S, parts, setTitle) {
   refresh();
 }
 
-export async function pagePartner(app, S, setTitle) {
-  setTitle('Become a Partner');
+export async function pagePartner(app, S, setTitle, params = new URLSearchParams()) {
+  const wantType = params.get('type');
+  setTitle(wantType === 'seller' ? 'Sell on Drovox' : 'Become a Partner');
   const p = await api('/partner/program');
   const app_ = p.application;
   const status = p.partner
@@ -162,9 +194,10 @@ export async function pagePartner(app, S, setTitle) {
       <label class="f full">Tell us about your business<textarea name="message" rows="3" placeholder="What you sell or teach, your customers, what you need from us"></textarea></label>
       <button class="btn primary lg full">Submit application</button></form>`
     : `<div class="card section" style="text-align:center"><p>Sign in or create a free account to apply — your partner discount is linked to your account.</p><a class="btn primary" href="#/register?next=%23%2Fpartner">Create account</a> <a class="btn" href="#/login?next=%23%2Fpartner">Sign in</a></div>`}`;
+  if (wantType && $('#pf [name=type]')) { $('#pf [name=type]').value = wantType; $('#pf').scrollIntoView({ behavior: 'smooth' }); }
   $('#pf')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    try { const r = await api('/partner/apply', { method: 'POST', body: formData(e.target) }); toast(r.message); pagePartner(app, S, setTitle); } catch (err) { toast(err.message, 'err'); }
+    try { const r = await api('/partner/apply', { method: 'POST', body: formData(e.target) }); toast(r.message); pagePartner(app, S, setTitle, params); } catch (err) { toast(err.message, 'err'); }
   });
 }
 
