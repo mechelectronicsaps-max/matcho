@@ -1,0 +1,22 @@
+{
+  "name": "drovox",
+  "version": "1.0.0",
+  "description": "Drovox - electronics & robotics components store: storefront, stockist panel and master admin panel",
+  "type": "module",
+  "main": "server/index.js",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --no-warnings server/index.js",
+    "seed": "node --no-warnings server/seed.js",
+    "reseed": "node server/reset.js && node --no-warnings server/seed.js",
+    "test": "node --no-warnings --test test/*.test.js"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
+    "express": "^5.3.0"
+  }
+}
