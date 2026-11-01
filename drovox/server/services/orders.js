@@ -198,7 +198,7 @@ export function transition(orderId, to, actor, extra = {}) {
 export function orderDetail(orderId) {
   const o = get('SELECT * FROM orders WHERE id = ?', orderId);
   if (!o) return null;
-  o.items = all('SELECT * FROM order_items WHERE order_id = ?', orderId);
+  o.items = all('SELECT oi.*, p.image, p.category_id, p.slug FROM order_items oi LEFT JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ?', orderId);
   o.events = all('SELECT status, note, created_at FROM order_events WHERE order_id = ? ORDER BY id', orderId);
   o.status_label = STATUS_LABEL[o.status];
   o.next = STATUS_FLOW[o.status];

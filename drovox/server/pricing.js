@@ -94,7 +94,7 @@ export function quote(o) {
     const tiers = parseTiers(p);
     const next = tiers.find((t) => t.min_qty > qty);
     lines.push({
-      product_id: p.id, sku: p.sku, name: p.name, image: p.image, hsn: p.hsn, gst_rate: p.gst_rate, qty,
+      product_id: p.id, sku: p.sku, slug: p.slug, name: p.name, image: p.image, category_id: p.category_id, hsn: p.hsn, gst_rate: p.gst_rate, qty,
       unit_price: unit, list_price: p.price, mrp: p.mrp, line_total: round2(unit * qty), stock: p.stock,
       unit_cost: p.cost_price,
       nudge: next ? { add: next.min_qty - qty, unit_price: next.price, save: round2((unit - next.price) * next.min_qty) } : null,

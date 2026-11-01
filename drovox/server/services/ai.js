@@ -75,9 +75,9 @@ function validate(plan, rows) {
   for (const it of plan.items || []) {
     const r = bySku.get(String(it.sku).toUpperCase());
     if (!r) { plan.missing = [...(plan.missing || []), { part: it.sku, note: 'Not in our catalogue' }]; continue; }
-    const p = get('SELECT id, sku, name, price, stock, image FROM products WHERE sku = ?', r.sku);
+    const p = get('SELECT id, sku, slug, name, price, stock, image, category_id FROM products WHERE sku = ?', r.sku);
     const qty = Math.max(1, Math.min(Math.floor(Number(it.qty) || 1), p.stock || 1));
-    items.push({ product_id: p.id, sku: p.sku, name: p.name, price: p.price, image: p.image, stock: p.stock, qty, reason: it.reason });
+    items.push({ product_id: p.id, sku: p.sku, slug: p.slug, name: p.name, price: p.price, image: p.image, category_id: p.category_id, stock: p.stock, qty, reason: it.reason });
   }
   return { ...plan, items, estimated_total: Math.round(items.reduce((s, i) => s + i.price * i.qty, 0)) };
 }
