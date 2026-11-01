@@ -8,7 +8,7 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "start": "node --no-warnings server/index.js",
+    "start": "node --no-warnings app.js",
     "seed": "node --no-warnings server/seed.js",
     "reseed": "node server/reset.js && node --no-warnings server/seed.js",
     "test": "node --no-warnings --test test/*.test.js",

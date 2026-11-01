@@ -1,7 +1,7 @@
 // Drovox server: storefront (/), stockist panel (/stockist), master panel (/master) and the JSON API (/api).
 import express from 'express';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { attachUser } from './auth.js';
 import { store, razorpayWebhook } from './routes/store.js';
 import { stock } from './routes/stock.js';
@@ -61,4 +61,5 @@ export function start() {
   });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) start();
+// Compare as file URLs so this also works with Windows paths (C:\...).
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) start();
