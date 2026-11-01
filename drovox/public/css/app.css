@@ -440,3 +440,33 @@ footer.site { padding: 40px 0 0; }
 .ft-pay #ft-paylogos { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .pay-badge { display: inline-grid; place-items: center; width: 64px; height: 30px; background: #fff; border-radius: 6px; box-shadow: 0 0 0 1px rgba(255,255,255,.15); }
 .pay-badge svg { width: 58px; height: 22px; }
+
+/* DIY projects */
+.pj-hero { display: flex; justify-content: space-between; align-items: center; gap: 20px; background: linear-gradient(110deg, #2e1a8a, #5b2fd6 60%, #f97316); color: #fff; border-radius: 16px; padding: 22px 26px; margin-bottom: 16px; }
+.pj-hero h1 { color: #fff; margin: 0 0 6px; } .pj-hero p { margin: 0 0 12px; color: #ede9fe; max-width: 640px; }
+.pj-hero-art { font-size: 3rem; letter-spacing: 6px; }
+.pj-search { display: flex; gap: 8px; max-width: 560px; } .pj-search input { flex: 1; }
+.pj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+.pj-card { display: flex; flex-direction: column; padding: 0; overflow: hidden; color: inherit; transition: transform .15s, box-shadow .15s; }
+.pj-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(15,23,42,.12); }
+.pj-pic { position: relative; aspect-ratio: 3 / 2; display: grid; place-items: center; background: linear-gradient(135deg, #ede9fe, #ffedd5); font-size: 3.4rem; }
+.pj-pic.photo { background: #fff; } .pj-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pj-flag { position: absolute; left: 10px; top: 10px; font-size: .72rem; font-weight: 700; background: #f59e0b; color: #fff; padding: 2px 8px; border-radius: 999px; }
+.pj-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.pj-body h3 { margin: 2px 0 0; font-size: 1.05rem; }
+.pj-sum { margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pj-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); }
+.pj-main { aspect-ratio: 4 / 3; border-radius: 14px; overflow: hidden; background: #fff; border: 1px solid var(--line); display: grid; place-items: center; }
+.pj-main img { width: 100%; height: 100%; object-fit: contain; } .pj-main.empty-art { background: linear-gradient(135deg, #ede9fe, #ffedd5); font-size: 6rem; }
+.pj-thumbs { display: flex; gap: 8px; margin-top: 8px; overflow-x: auto; } .pj-thumbs button { width: 64px; height: 64px; padding: 0; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; flex: none; cursor: pointer; }
+.pj-thumbs button.on { border-color: var(--brand); } .pj-thumbs img { width: 100%; height: 100%; object-fit: contain; }
+.pj-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; } .pj-facts div { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--card); } .pj-facts span { display: block; font-size: .72rem; color: var(--muted); }
+.pj-kit { border: 2px solid color-mix(in srgb, var(--brand) 35%, var(--line)); }
+.pj-steps { counter-reset: s; list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 10px; }
+.pj-steps li { counter-increment: s; position: relative; padding-left: 52px; line-height: 1.6; }
+.pj-steps li::before { content: counter(s); position: absolute; left: 14px; top: 14px; width: 26px; height: 26px; border-radius: 50%; background: #3b1fa3; color: #fff; display: grid; place-items: center; font-weight: 700; font-size: .85rem; }
+.pj-video { position: relative; aspect-ratio: 16 / 9; max-width: 860px; border-radius: 14px; overflow: hidden; } .pj-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+@media (max-width: 640px) { .pj-hero { flex-direction: column; align-items: flex-start; } .pj-hero-art { display: none; } }
+/* the menu has 11 tabs: tighten on laptop widths so every tab stays visible */
+@media (max-width: 1440px) { .mainlinks a { padding: 12px 8px; font-size: .88rem; } }
+@media (max-width: 1280px) { .mainlinks a { padding: 12px 6px; font-size: .84rem; } }

@@ -169,3 +169,26 @@ test('battery builder: specs, current limit warning, casing / charger / extras p
   const lfp = (await api('POST', '/api/services/estimate', { service: 'battery', cell: 'lfp', series: 4, parallel: 3 })).data;
   assert.equal(lfp.info.nominal_v, 12.8); assert.equal(lfp.info.capacity_ah, 18);
 });
+
+test('DIY projects: starter set matched to the catalogue, public list/detail, staff CRUD', async () => {
+  const list = (await api('GET', '/api/projects')).data;
+  assert.ok(list.rows.length >= 8, 'demo seeds starter projects');
+  const lf = list.rows.find((r) => r.slug === 'line-follower-robot');
+  assert.ok(lf.parts_count >= 5 && lf.kit_price > 0);
+  const d = (await api('GET', '/api/projects/line-follower-robot')).data;
+  assert.ok(d.steps.length >= 4); assert.ok(d.parts.some((p) => p.sku === 'DRV-MD-L298N'));
+  assert.equal((await api('GET', '/api/projects?category=Robotics')).data.rows.every((r) => r.category === 'Robotics'), true);
+  const st = await login('stockist@drovox.in', 'stock123');
+  const tok = await login('demo@drovox.in', 'demo123');
+  assert.equal((await api('POST', '/api/stock/projects', { title: 'x' }, tok)).status, 403);
+  const uno = get(`SELECT id FROM products WHERE sku = 'DRV-ARD-UNO'`).id;
+  const c = (await api('POST', '/api/stock/projects', { title: 'Traffic Light Model', category: 'Arduino Basics', level: 'beginner', summary: '3 LEDs', steps: 'Wire LEDs\nUpload code', items: [{ product_id: uno, qty: 1 }, { product_id: uno, qty: 3 }] }, st)).data;
+  assert.equal(c.slug, 'traffic-light-model');
+  const got = (await api('GET', `/api/stock/projects/${c.id}`, null, st)).data;
+  assert.equal(got.items.length, 1, 'duplicate parts merged'); assert.deepEqual(got.steps, ['Wire LEDs', 'Upload code']);
+  assert.equal((await api('POST', '/api/stock/projects', { title: 'Bad', items: [{ product_id: 999999, qty: 1 }] }, st)).status, 400);
+  await api('PUT', `/api/stock/projects/${c.id}`, { active: false }, st);
+  assert.equal((await api('GET', '/api/projects/traffic-light-model')).status, 404);
+  assert.equal((await api('POST', '/api/stock/projects/starter', {}, st)).data.added, 0, 'starter set is not duplicated');
+  assert.equal((await api('DELETE', `/api/stock/projects/${c.id}`, null, st)).data.ok, true);
+});

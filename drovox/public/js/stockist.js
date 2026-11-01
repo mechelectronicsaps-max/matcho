@@ -81,7 +81,7 @@ const jsonList = (v) => { if (Array.isArray(v)) return v; try { const a = JSON.p
 const MAX_PHOTOS = 5;
 
 /** Photo manager in the product form. Existing products save each change at once; new ones upload after create. */
-function wirePhotos(m, p) {
+function wirePhotos(m, p, base = 'products') {
   let images = jsonList(p?.images); const queued = [];
   const grid = $('#phs', m.el); const input = $('#phfile', m.el);
   const render = () => {
@@ -90,8 +90,8 @@ function wirePhotos(m, p) {
       + queued.map((q, i) => `<div class="ph"><img src="${q.variants.s}" alt=""><span class="main" style="background:var(--amber)">Saves with product</span><div class="acts"><button type="button" data-unq="${i}">✕</button></div></div>`).join('')
       + (total < MAX_PHOTOS ? `<div class="ph add" id="phadd">➕<br>Add photo${total ? '' : 's'}<br><span class="tiny">${total}/${MAX_PHOTOS}</span></div>` : '');
     $('#phadd', grid)?.addEventListener('click', () => input.click());
-    $$('[data-del]', grid).forEach((b) => { b.onclick = async () => { if (!confirm('Delete this photo?')) return; try { images = (await api(`${B}/products/${p.id}/images/${b.dataset.del}`, { method: 'DELETE' })).images; render(); } catch (e) { toast(e.message, 'err'); } }; });
-    $$('[data-mv]', grid).forEach((b) => { b.onclick = async () => { const i = Number(b.dataset.mv); const next = [...images]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; try { images = (await api(`${B}/products/${p.id}/images`, { method: 'PUT', body: { images: next } })).images; render(); } catch (e) { toast(e.message, 'err'); } }; });
+    $$('[data-del]', grid).forEach((b) => { b.onclick = async () => { if (!confirm('Delete this photo?')) return; try { images = (await api(`${B}/${base}/${p.id}/images/${b.dataset.del}`, { method: 'DELETE' })).images; render(); } catch (e) { toast(e.message, 'err'); } }; });
+    $$('[data-mv]', grid).forEach((b) => { b.onclick = async () => { const i = Number(b.dataset.mv); const next = [...images]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; try { images = (await api(`${B}/${base}/${p.id}/images`, { method: 'PUT', body: { images: next } })).images; render(); } catch (e) { toast(e.message, 'err'); } }; });
     $$('[data-unq]', grid).forEach((b) => { b.onclick = () => { queued.splice(Number(b.dataset.unq), 1); render(); }; });
   };
   input.onchange = async () => {
@@ -100,13 +100,13 @@ function wirePhotos(m, p) {
       grid.insertAdjacentHTML('beforeend', '<div class="ph add" data-busy><span class="spinner"></span></div>');
       try {
         const variants = await photoVariants(f);
-        if (p?.id) images = (await api(`${B}/products/${p.id}/images`, { method: 'POST', body: { variants } })).images; else queued.push({ variants });
+        if (p?.id) images = (await api(`${B}/${base}/${p.id}/images`, { method: 'POST', body: { variants } })).images; else queued.push({ variants });
       } catch (e) { toast(e.message, 'err'); }
       render();
     }
   };
   render();
-  return { async uploadQueued(id) { for (const q of queued) await api(`${B}/products/${id}/images`, { method: 'POST', body: { variants: q.variants } }); } };
+  return { async uploadQueued(id) { for (const q of queued) await api(`${B}/${base}/${id}/images`, { method: 'POST', body: { variants: q.variants } }); } };
 }
 
 function wireAiFill(m, form) {
@@ -497,6 +497,81 @@ async function serviceJob(id, reload) {
   $$('[data-to]', m.el).forEach((b) => { b.onclick = () => (b.dataset.to === 'cancelled' && !confirm('Cancel this request? The customer is told on WhatsApp.') ? null : send(b.dataset.to)); });
 }
 
+// ---- DIY projects: storefront project pages with a one-click parts kit -------------------------
+const LEVELS = { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' };
+async function diyProjects(el, params) {
+  const d = await api(`${B}/projects`);
+  el.innerHTML = `${head('DIY projects', `<button class="btn" id="starter">✨ Add starter projects</button><a class="btn" href="/#/projects" target="_blank">View on store ↗</a><button class="btn primary" id="new">+ New project</button>`)}
+    <p class="small muted">Projects appear under <b>DIY Projects</b> in the store menu. Customers see the parts list with live prices and stock, and add the whole kit to the cart in one click. Starter projects (line follower, smart dustbin, weather station…) are matched to the products you already have — add photos and check the parts.</p>
+    ${d.rows.length ? `<div class="card table-wrap"><table class="t"><thead><tr><th></th><th>Project</th><th>Level</th><th class="r">Parts</th><th class="r">Kit price</th><th class="r">Views</th><th class="r">Kits added</th><th></th></tr></thead><tbody>
+      ${d.rows.map((p) => `<tr><td>${art({ ...p, name: p.title, image: '🛠️' }, 'xs')}</td><td><b>${esc(p.title)}</b>${p.featured ? ' <span class="badge amber">Featured</span>' : ''}${p.active ? '' : ' <span class="badge">hidden</span>'}<div class="tiny muted">${esc(p.category)} · ${p.images.length} photo${p.images.length === 1 ? '' : 's'}${p.in_stock ? '' : ' · <span style="color:var(--amber)">part low / out of stock</span>'}</div></td>
+        <td class="small">${LEVELS[p.level] || p.level}</td><td class="r">${p.parts_count}</td><td class="r">${money(p.kit_price)}</td><td class="r">${p.views}</td><td class="r">${p.kits_added}</td>
+        <td class="nowrap"><button class="btn sm" data-edit="${p.id}">Edit</button> <a class="btn sm ghost" href="/#/projects/${esc(p.slug)}" target="_blank">View</a> <button class="btn sm ghost" data-del="${p.id}" title="Delete">🗑</button></td></tr>`).join('')}</tbody></table></div>`
+    : '<div class="empty card"><div class="big">🛠️</div><h3>No DIY projects yet</h3><p>Add the starter set of popular school &amp; maker projects, or create your own.</p></div>'}`;
+  $('#starter').onclick = async () => { const r = await api(`${B}/projects/starter`, { method: 'POST' }); toast(r.added ? `${r.added} starter projects added with ${r.parts} parts matched — review each one` : 'Starter projects are already added'); diyProjects(el, params); };
+  $('#new').onclick = () => projectEditor(null, () => diyProjects(el, params), d);
+  $$('[data-edit]', el).forEach((b) => { b.onclick = async () => projectEditor(await api(`${B}/projects/${b.dataset.edit}`), () => diyProjects(el, params), d); });
+  $$('[data-del]', el).forEach((b) => { b.onclick = async () => { if (!confirm('Delete this project and its photos?')) return; await api(`${B}/projects/${b.dataset.del}`, { method: 'DELETE' }); toast('Project deleted'); diyProjects(el, params); }; });
+  if (params.get('new')) { clearNew(params); projectEditor(null, () => diyProjects(el, params), d); }
+}
+
+async function projectEditor(p, done, meta) {
+  const prods = await api(`${B}/products`);
+  const byId = new Map(prods.map((x) => [x.id, x]));
+  const items = (p?.items || []).map((i) => ({ ...i }));
+  const lines = (a) => esc((a || []).join('\n'));
+  const m = modal(`<h2>${p ? 'Edit project' : 'New DIY project'}</h2><form class="form two" id="pjf">
+    <label class="f full">Project title<input name="title" required value="${esc(p?.title || '')}" placeholder="e.g. Smart Dustbin with Automatic Lid"></label>
+    <label class="f">Category<select name="category">${meta.categories.map((c) => `<option ${c === p?.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+    <label class="f">Level<select name="level">${meta.levels.map((l) => `<option value="${l}" ${l === p?.level ? 'selected' : ''}>${LEVELS[l]}</option>`).join('')}</select></label>
+    <label class="f">Suitable for<input name="audience" value="${esc(p?.audience || '')}" placeholder="Class 6–8 / College / Hobbyists"></label>
+    <label class="f">Build time (hours)<input name="build_hours" type="number" step="0.5" min="0.5" value="${p?.build_hours ?? 2}"></label>
+    <label class="f full">Short summary (shown on the card)<textarea name="summary" rows="2" maxlength="500">${esc(p?.summary || '')}</textarea></label>
+    <div class="full"><div class="f">Photos <span class="muted">(3–5 recommended: finished project, wiring, parts)</span></div><div class="ph-grid" id="phs" style="margin-top:6px"></div><input type="file" id="phfile" accept="image/*" multiple hidden></div>
+    <div class="full"><div class="f">Parts list <span class="muted">(from your catalogue — customers add them all to the cart in one click)</span></div>
+      <div class="row" style="flex-wrap:nowrap;margin:6px 0"><input id="psearch" list="plist" placeholder="Type to search a product or SKU…" style="flex:1"><datalist id="plist">${prods.filter((x) => x.active).map((x) => `<option value="${esc(x.sku)} — ${esc(x.name)}"></option>`).join('')}</datalist><button type="button" class="btn" id="padd">+ Add part</button></div>
+      <div id="pitems"></div></div>
+    <label class="f full">What students will learn <span class="muted">(one per line)</span><textarea name="learn" rows="3">${lines(p?.learn)}</textarea></label>
+    <label class="f full">Build steps <span class="muted">(one step per line)</span><textarea name="steps" rows="6">${lines(p?.steps)}</textarea></label>
+    <label class="f full">About this project (optional, longer description)<textarea name="description" rows="3">${esc(p?.description || '')}</textarea></label>
+    <label class="f">Video link (YouTube)<input name="video_url" value="${esc(p?.video_url || '')}" placeholder="https://youtu.be/…"></label>
+    <label class="f">Code download link<input name="code_url" value="${esc(p?.code_url || '')}" placeholder="https://github.com/…"></label>
+    <label class="f full">Search tags<input name="tags" value="${esc(p?.tags || '')}" placeholder="science fair, arduino, sensor"></label>
+    <label class="check"><input type="checkbox" name="featured" ${p?.featured ? 'checked' : ''}> Featured (shown first)</label><label class="check"><input type="checkbox" name="active" ${p && !p.active ? '' : 'checked'}> Visible in store</label>
+    <div class="full row"><button class="btn primary">${p ? 'Save project' : 'Create project'}</button></div></form>`, { wide: true });
+  const photos = wirePhotos(m, p, 'projects');
+  const form = $('#pjf', m.el);
+  const renderItems = () => {
+    const total = items.reduce((s, i) => s + (byId.get(i.product_id)?.price || 0) * i.qty, 0);
+    $('#pitems', m.el).innerHTML = items.length ? `<table class="t"><tbody>${items.map((i, k) => { const x = byId.get(i.product_id); return `<tr><td>${x ? art(x, 'xs') : ''}</td><td><b class="small">${esc(x?.name || 'Removed product')}</b><div class="tiny muted">${esc(x?.sku || '')} · ${money(x?.price || 0)} · stock ${x?.stock ?? 0}</div></td>
+      <td><input type="number" min="1" value="${i.qty}" data-iq="${k}" style="width:64px" aria-label="Quantity"></td><td><input value="${esc(i.note || '')}" data-in="${k}" placeholder="note (optional)" style="width:150px"></td><td><button type="button" class="btn sm ghost" data-ix="${k}" title="Remove">✕</button></td></tr>`; }).join('')}</tbody></table><div class="small" style="margin-top:6px">Kit price: <b>${money(total)}</b> · ${items.length} parts</div>`
+      : '<div class="small muted">No parts yet — search and add the products this project needs.</div>';
+    $$('[data-iq]', m.el).forEach((x) => { x.onchange = () => { items[x.dataset.iq].qty = Math.max(1, Math.floor(Number(x.value) || 1)); renderItems(); }; });
+    $$('[data-in]', m.el).forEach((x) => { x.onchange = () => { items[x.dataset.in].note = x.value; }; });
+    $$('[data-ix]', m.el).forEach((x) => { x.onclick = () => { items.splice(Number(x.dataset.ix), 1); renderItems(); }; });
+  };
+  const addPart = () => {
+    const v = $('#psearch', m.el).value.trim(); if (!v) return;
+    const sku = v.split(' — ')[0].trim().toUpperCase();
+    const x = prods.find((y) => y.sku === sku) || prods.find((y) => y.name.toLowerCase().includes(v.toLowerCase()));
+    if (!x) { toast('No product matches — pick one from the list', 'err'); return; }
+    const have = items.find((i) => i.product_id === x.id); if (have) have.qty += 1; else items.push({ product_id: x.id, qty: 1, note: '' });
+    $('#psearch', m.el).value = ''; renderItems();
+  };
+  $('#padd', m.el).onclick = addPart;
+  $('#psearch', m.el).addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addPart(); } });
+  $('#psearch', m.el).addEventListener('change', (e) => { if (e.target.value.includes(' — ')) addPart(); });
+  renderItems();
+  form.onsubmit = async (e) => {
+    e.preventDefault(); const btn = $('button.primary', form); btn.disabled = true;
+    try {
+      const r = await api(p ? `${B}/projects/${p.id}` : `${B}/projects`, { method: p ? 'PUT' : 'POST', body: { ...formData(form), items } });
+      if (!p) await photos.uploadQueued(r.id);
+      toast(p ? 'Project saved' : 'Project created'); m.close(); done();
+    } catch (err) { toast(err.message, 'err'); btn.disabled = false; }
+  };
+}
+
 startPanel({
   scope: 'stockist', title: 'Stockist Panel', roles: ['stockist'],
   demo: 'Stockist accounts are created by the owner in Master → Users & roles.',
@@ -505,9 +580,9 @@ startPanel({
     { id: 'dashboard', label: 'Overview', icon: '📊' }, { id: 'orders', label: 'Orders & dispatch', icon: '📦' },
     { id: 'jobs', label: 'Custom orders', icon: '🛠️' }, { id: 'services', label: 'Service orders', icon: '🖨️' },
     { id: 'scan', label: 'Scan stock in / out', icon: '📷' },
-    { id: 'products', label: 'Products & stock', icon: '🗃️' }, { id: 'categories', label: 'Categories & SKU codes', icon: '🗂️' },
+    { id: 'products', label: 'Products & stock', icon: '🗃️' }, { id: 'projects', label: 'DIY projects', icon: '🧩' }, { id: 'categories', label: 'Categories & SKU codes', icon: '🗂️' },
     { id: 'labels', label: 'Labels & stickers', icon: '🏷️' }, { id: 'imports', label: 'Import batches', icon: '🚢' },
     { id: 'reorder', label: 'Reorder planning', icon: '📈' }, { id: 'suppliers', label: 'Suppliers', icon: '🏭' },
   ],
-  pages: { dashboard, orders, jobs, services, scan, products, categories, labels, imports, reorder, suppliers },
+  pages: { dashboard, orders, jobs, services, scan, products, projects: diyProjects, categories, labels, imports, reorder, suppliers },
 });

@@ -339,6 +339,23 @@ CREATE TABLE IF NOT EXISTS ai_sessions (
 );
 `;
 db.exec(SCHEMA);
+db.exec(`CREATE TABLE IF NOT EXISTS diy_projects (            -- DIY / school projects with a ready parts list
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
+  category TEXT NOT NULL DEFAULT 'Robotics',
+  level TEXT NOT NULL DEFAULT 'beginner',                -- beginner | intermediate | advanced
+  audience TEXT NOT NULL DEFAULT '',                      -- e.g. "Class 6–8", "Engineering"
+  build_hours REAL NOT NULL DEFAULT 2,
+  summary TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '',
+  steps TEXT NOT NULL DEFAULT '[]',                       -- JSON [step]
+  learn TEXT NOT NULL DEFAULT '[]',                       -- JSON [skill learned]
+  items TEXT NOT NULL DEFAULT '[]',                       -- JSON [{product_id, qty, note}]
+  images TEXT NOT NULL DEFAULT '[]', video_url TEXT, code_url TEXT,
+  tags TEXT NOT NULL DEFAULT '', featured INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1,
+  views INTEGER NOT NULL DEFAULT 0, kits_added INTEGER NOT NULL DEFAULT 0,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
 
 // Columns added after the first release: add them to existing databases.
 function ensureColumn(table, col, def) {
@@ -383,7 +400,7 @@ export function tx(fn) {
 // Settings are stored as JSON values with defaults below.
 export const DEFAULT_SETTINGS = {
   store: {
-    name: 'Drovox', tagline: 'Components for makers, engineers & builders',
+    name: 'Drovox', tagline: 'Build Tech with Our Parts',
     legal_name: 'Drovox', gstin: '', state_code: '27', business_type: '',   // e.g. Proprietorship / Partnership / Pvt Ltd
     jurisdiction_city: '', grievance_officer: '', grievance_email: '',
     address: '', support_phone: '', support_email: '',

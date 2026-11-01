@@ -11,6 +11,7 @@ import { admin } from './routes/admin.js';
 import { extras, servicesStaff, partnersAdmin } from './routes/extras.js';
 import { content, contentAdmin, SITE_UPLOADS_DIR } from './routes/content.js';
 import { PRODUCT_IMG_DIR } from './images.js';
+import { projects, projectsStaff } from './routes/projects.js';
 import { startScheduler } from './services/jobs.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -54,13 +55,16 @@ export function createApp() {
   app.use('/api/services/dxf', express.json({ limit: '30mb' }));
   app.use(['/api/jobs', '/api/admin/content'], express.json({ limit: '8mb' }));
   app.use('/api/stock/products', express.json({ limit: '12mb' }));   // product photos (3 sizes)
+  app.use('/api/stock/projects', express.json({ limit: '12mb' }));   // project photos
   app.use(express.json({ limit: '1mb' }));
   app.use('/api', attachUser);
   app.use('/api/stock/services', servicesStaff);
+  app.use('/api/stock/projects', projectsStaff);
   app.use('/api/stock', stock);
   app.use('/api/admin/partners', partnersAdmin);
   app.use('/api/admin/content', contentAdmin);
   app.use('/api/admin', admin);
+  app.use('/api', projects);
   app.use('/api', extras);
   app.use('/api', content);
   app.use('/api', store);

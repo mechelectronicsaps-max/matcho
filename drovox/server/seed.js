@@ -5,6 +5,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { all, get, run, DB_FILE, getSetting, setSetting } from './db.js';
 import { addStarterCategories } from './catalog.js';
+import { addStarterProjects } from './routes/projects.js';
 import { hashPassword, makeReferralCode } from './auth.js';
 import { createOrder, transition, markPaid } from './services/orders.js';
 import { scoreLead } from './services/engine.js';
@@ -213,6 +214,7 @@ export function seed() {
   run(`INSERT INTO campaigns(name, channel, segment, message, coupon_code, status, sent_count, created_by, sent_at) VALUES (?,?,?,?,?,?,?,?, datetime('now','-5 days'))`,
     'Diwali Maker Sale', 'whatsapp', 'all', 'Diwali Maker Sale is live at Drovox! Use DRONE15 for 15% off drone builds 🚁', 'DRONE15', 'sent', 31, admin.id);
   run(`INSERT INTO audit_logs(user_id, user_name, role, action, entity, details) VALUES (?,?,?,?,?,?)`, admin.id, admin.name, 'admin', 'system.seed', 'database', JSON.stringify({ products: P.length }));
+  addStarterProjects();
   console.log(`Seeded ${P.length} products, ${custIds.length} customers, ${get('SELECT COUNT(*) n FROM orders').n} orders.`);
   return true;
 }

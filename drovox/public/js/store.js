@@ -2,6 +2,7 @@
 import { $, $$, api, esc, money, num, toast, modal, art, local, getToken, setToken, formData, badge, dt, printInvoice, imgUrl } from './common.js';
 import { pageServices, pagePartner, accountServices } from './services.js';
 import { policyPage, paymentBadges } from './policies.js';
+import { pageProjects, pageProject, projectCard } from './projects-ui.js';
 
 const S = { cfg: null, user: null, cats: [], quoteCache: null, site: { site: {}, banners: [], reviews: [] } };
 const app = $('#app');
@@ -144,7 +145,7 @@ function reviewsSection() {
 
 async function pageHome() {
   setTitle('');
-  const [home, recentItems, svcHtml] = await Promise.all([api('/home'), recent.get().length ? api('/products/batch', { method: 'POST', body: { ids: recent.get() } }) : [], servicesSection()]);
+  const [home, recentItems, svcHtml, proj] = await Promise.all([api('/home'), recent.get().length ? api('/products/batch', { method: 'POST', body: { ids: recent.get() } }) : [], servicesSection(), api('/projects').catch(() => ({ rows: [] }))]);
   const top = `<div class="home-top"><div class="svc-tiles">${TILE_SERVICES.map(([id, name, ic]) => `<a href="#/services/${id}">${esc(name)}<span>${ic}</span></a>`).join('')}</div>${sliderHtml()}</div>`;
   const hasStock = home.trending.length || home.new_arrivals.length;
   const today = new Date().toISOString().slice(0, 10);
@@ -158,6 +159,7 @@ async function pageHome() {
     ${!S.cats.some((c) => c.count) ? '' : section('Categories', '', `<div class="cats">${S.cats.filter((c) => c.count).map((c) => `<a href="#/c/${c.slug}"><span>${c.icon}</span>${esc(c.name)}<div class="tiny muted">${c.count} items</div></a>`).join('')}</div>`, '<a class="btn sm" href="#/search">View all</a>')}
     ${hasStock ? section('🔥 Trending now', 'What makers across India are buying this week', grid(home.trending, 'hscroll'), '<a class="link small" href="#/search?sort=popular">See all →</a>') : `<div class="banner brand section"><div>🛒 Our catalogue is being stocked right now — services are open, and you can <a class="link" href="#/bulk">request any part</a>.</div></div>`}
     ${S.site.site.show_services_on_home === false ? '' : svcHtml}
+    ${proj.rows.length ? section('🛠️ DIY projects', 'Pick a project, add the whole parts kit in one click', `<div class="pj-grid">${proj.rows.slice(0, 4).map(projectCard).join('')}</div>`, '<a class="link small" href="#/projects">All projects →</a>') : ''}
     ${home.recommended.length ? section('Recommended for you', 'Based on what you browsed and what others bought with it', grid(home.recommended, 'hscroll')) : ''}
     ${refer}
     ${home.deals.length ? section('💸 Best deals', 'Biggest savings on MRP', grid(home.deals, 'hscroll'), '<a class="link small" href="#/search?sort=discount">All deals →</a>') : ''}
@@ -737,6 +739,7 @@ async function route() {
       case 'builder': await pageBuilder(params); break;
       case 'bulk': pageBulk(params); break;
       case 'services': await pageServices(app, S, parts, setTitle); break;
+      case 'projects': if (parts[1]) await pageProject(app, decodeURIComponent(parts[1]), setTitle, addToCart); else await pageProjects(app, params, setTitle); break;
       case 'partner': await pagePartner(app, S, setTitle, params); break;
       case 'compare': await pageCompare(); break;
       case 'wishlist': await pageWishlist(); break;
