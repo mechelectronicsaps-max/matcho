@@ -6,12 +6,14 @@
   "scripts": {
     "configure": "node scripts/configure.mjs",
     "sync": "node scripts/sync.mjs",
-    "open": "npx cap open android"
+    "open": "npx cap open android",
+    "sync:ios": "node scripts/sync.mjs --ios"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",
     "@capacitor/app": "8.1.2",
     "@capacitor/core": "8.5.3",
+    "@capacitor/ios": "^8.5.3",
     "@capacitor/push-notifications": "8.1.3",
     "@capacitor/share": "8.0.3",
     "@capacitor/splash-screen": "8.0.2",

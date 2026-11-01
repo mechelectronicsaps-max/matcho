@@ -805,6 +805,7 @@ function pagePolicy(slug) {
   $('#ft-apps').innerHTML = appBadges(site);
   $('#ft-contact').innerHTML = `${esc(S.cfg.store.support_phone)}<br>${esc(S.cfg.store.support_email)}<br>${esc(S.cfg.store.address)}`;
   initNative(); mountShell();
+  if ('serviceWorker' in navigator && !isApp() && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('/sw.js').catch(() => {});
   await loadMe(); renderCartCount(); syncCart(); syncPushToken();
   if (isApp()) $('#ft-apps')?.closest('.ft-brand')?.querySelectorAll('h4, #ft-apps').forEach((x) => x.remove());
   window.addEventListener('hashchange', route); route(); exitIntent();

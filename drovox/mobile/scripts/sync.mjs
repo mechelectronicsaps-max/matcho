@@ -1,5 +1,9 @@
-// npm run sync [-- <site url>]  → writes the config for that address and copies it into the Android project.
+// npm run sync [-- <site url>]       → Android
+// npm run sync:ios [-- <site url>]   → iPhone
+// Writes the config for that address and copies it into the native project.
 import { execSync } from 'node:child_process';
-const url = process.argv[2] ? ` ${JSON.stringify(process.argv[2])}` : '';
-execSync(`node scripts/configure.mjs${url}`, { stdio: 'inherit' });
-execSync('npx cap sync android', { stdio: 'inherit' });
+const args = process.argv.slice(2);
+const ios = args.includes('--ios');
+const url = args.find((a) => !a.startsWith('--'));
+execSync(`node scripts/configure.mjs${url ? ` ${JSON.stringify(url)}` : ''}`, { stdio: 'inherit' });
+execSync(`npx cap sync ${ios ? 'ios' : 'android'}`, { stdio: 'inherit' });

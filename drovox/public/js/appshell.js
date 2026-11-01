@@ -6,11 +6,14 @@ import { isApp } from './native.js';
 
 const PHRASES = ['how to make a drone', 'build a line follower robot', 'Arduino Uno', 'ESP32 weather station', 'smart dustbin project', '18650 battery pack', 'servo motor SG90', 'PCB manufacturing'];
 
+/** Opened from the home-screen icon (iPhone "Add to Home Screen" / Android "Install app"). */
+export const isInstalled = () => !!(window.navigator.standalone || window.matchMedia?.('(display-mode: standalone)').matches);
+
 export function isAppUI() {
   try {
     if (/[?&]app=1\b/.test(location.search)) sessionStorage.setItem('drv_appui', '1');
     if (/[?&]app=0\b/.test(location.search)) sessionStorage.removeItem('drv_appui');
-    return isApp() || sessionStorage.getItem('drv_appui') === '1';
+    return isApp() || isInstalled() || sessionStorage.getItem('drv_appui') === '1';
   } catch { return isApp(); }
 }
 

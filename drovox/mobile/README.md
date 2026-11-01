@@ -86,6 +86,6 @@ Step-by-step for Windows: **[ANDROID-STUDIO.md](ANDROID-STUDIO.md)**. In short: 
    - Drovox serves them at `/.well-known/assetlinks.json`.
 7. Put the Play link in **Master → Settings → Website → Android app link**, so the store footer badge points to it.
 
-## iOS (next)
+## iPhone (iOS)
 
-The same project builds the iPhone app: run `npm i @capacitor/ios` and `npx cap add ios` on a Mac with Xcode, add APNs to Firebase, and publish through App Store Connect.
+No Mac needed. Step-by-step from Windows: home-screen app (free, today), Sideloadly test install, or TestFlight / App Store — see **[IPHONE.md](IPHONE.md)**. GitHub builds the iPhone app on a cloud Mac (`.github/workflows/drovox-ios.yml`).
