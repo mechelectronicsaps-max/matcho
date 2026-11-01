@@ -31,18 +31,21 @@ jobs:
       DROVOX_URL: ${{ secrets.DROVOX_URL }}
       DROVOX_VERSION_CODE: ${{ github.run_number }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: drovox/mobile/package-lock.json
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
           cache: gradle
-      - uses: android-actions/setup-android@v3
+      # ubuntu-latest already ships the Android SDK (ANDROID_HOME) with licences accepted;
+      # Gradle downloads any missing platform automatically.
+      - name: Android SDK
+        run: echo "ANDROID_HOME=$ANDROID_HOME" && test -d "$ANDROID_HOME"
 
       - name: Install
         run: npm ci
@@ -78,7 +81,7 @@ jobs:
           DROVOX_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: chmod +x gradlew && ./gradlew --no-daemon assembleRelease bundleRelease
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: drovox-android-${{ github.run_number }}
           path: |
