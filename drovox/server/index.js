@@ -57,6 +57,7 @@ export function createApp() {
   app.use(['/api/jobs', '/api/admin/content'], express.json({ limit: '8mb' }));
   app.use('/api/stock/products', express.json({ limit: '12mb' }));   // product photos (3 sizes)
   app.use('/api/stock/projects', express.json({ limit: '12mb' }));   // project photos
+  app.use('/api/stock/categories', express.json({ limit: '12mb' })); // category photos
   app.use(express.json({ limit: '1mb' }));
   app.use('/api', attachUser);
   app.use('/api/stock/services', servicesStaff);

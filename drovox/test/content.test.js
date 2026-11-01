@@ -224,3 +224,26 @@ test('app: push token registration, assetlinks.json, FCM push for order updates'
   assert.equal(send[2].message.token, 'fcm-token-abcdefghijklmnopqrstuvwxyz');
   assert.equal(send[2].message.data.link, '#/order/DRV2611001');
 });
+
+test('app pages: notifications bell, waitlist, category photo', async () => {
+  const tok = await login('demo@drovox.in', 'demo123');
+  const st = await login('stockist@drovox.in', 'stock123');
+  const n = (await api('GET', '/api/me/notifications', null, tok)).data;
+  assert.ok(Array.isArray(n)); assert.ok(n.every((x) => x.body && x.created_at));
+  assert.equal((await api('GET', '/api/me/notifications')).status, 401);
+  const demo = get(`SELECT id, phone FROM users WHERE email = 'demo@drovox.in'`);
+  const p = get(`SELECT id FROM products WHERE sku = 'DRV-ESP-32'`);
+  const { run: dbRun } = await import('../server/db.js');
+  const a = dbRun('INSERT INTO stock_alerts(product_id, user_id, phone) VALUES (?,?,?)', p.id, demo.id, demo.phone);
+  const w = (await api('GET', '/api/me/waitlist', null, tok)).data;
+  assert.ok(w.some((x) => x.sku === 'DRV-ESP-32' && x.alert_id === Number(a.lastInsertRowid)));
+  await api('DELETE', `/api/me/waitlist/${a.lastInsertRowid}`, null, tok);
+  assert.ok(!(await api('GET', '/api/me/waitlist', null, tok)).data.some((x) => x.alert_id === Number(a.lastInsertRowid)));
+  const JPG = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP////////////////////////////////////////////////////////////////////////////////////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/AABEIAAEAAQMBIgACEQEDEQH/xAAUAAEAAAAAAAAAAAAAAAAAAAAA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEAMQAAABn//Z';
+  const cat = get('SELECT id FROM categories ORDER BY id LIMIT 1');
+  const r = (await api('POST', `/api/stock/categories/${cat.id}/image`, { variants: { s: JPG, m: JPG, l: JPG } }, st)).data;
+  assert.match(r.image, /\.jpg$/);
+  assert.equal((await api('GET', '/api/categories')).data.find((c) => c.id === cat.id).image, r.image);
+  await api('DELETE', `/api/stock/categories/${cat.id}/image`, null, st);
+  assert.equal((await api('GET', '/api/categories')).data.find((c) => c.id === cat.id).image, null);
+});

@@ -4,6 +4,7 @@ import { pageServices, pagePartner, accountServices } from './services.js';
 import { policyPage, paymentBadges } from './policies.js';
 import { pageProjects, pageProject, projectCard } from './projects-ui.js';
 import { initNative, syncPushToken, unlinkPush, share, isApp } from './native.js';
+import { isAppUI, mountShell, updateShell, setCounts, pageCategories, pageAccountApp, pageNotifications, pageWaitlist, pageAddresses, emptyCart, homeExtras } from './appshell.js';
 
 const S = { cfg: null, user: null, cats: [], quoteCache: null, site: { site: {}, banners: [], reviews: [] } };
 const app = $('#app');
@@ -20,7 +21,7 @@ const cart = {
 };
 let syncT;
 function syncCart() { if (!S.user) return; clearTimeout(syncT); syncT = setTimeout(() => api('/cart/sync', { method: 'POST', body: { items: cart.items() } }).catch(() => {}), 800); }
-function renderCartCount() { const n = cart.count(); const el = $('#cart-count'); el.textContent = n; el.classList.toggle('hidden', !n); }
+function renderCartCount() { const n = cart.count(); const el = $('#cart-count'); el.textContent = n; el.classList.toggle('hidden', !n); setCounts({ cart: n, wish: wish.get().length }); }
 const idList = (key, max) => ({
   get: () => local.get(key, []),
   has(id) { return this.get().includes(id); },
@@ -30,6 +31,7 @@ const idList = (key, max) => ({
 const wish = idList('drv_wish', 100); const compare = idList('drv_compare', 4);
 function renderCounts() {
   for (const [id, n] of [['wish-count', wish.get().length], ['cmp-count', compare.get().length]]) { const el = $('#' + id); if (el) { el.textContent = n; el.classList.toggle('hidden', !n); } }
+  setCounts({ cart: cart.count(), wish: wish.get().length });
 }
 const recent = { get: () => local.get('drv_recent', []), push(id) { local.set('drv_recent', [id, ...recent.get().filter((x) => x !== id)].slice(0, 12)); } };
 
@@ -146,7 +148,7 @@ function reviewsSection() {
 
 async function pageHome() {
   setTitle('');
-  const [home, recentItems, svcHtml, proj] = await Promise.all([api('/home'), recent.get().length ? api('/products/batch', { method: 'POST', body: { ids: recent.get() } }) : [], servicesSection(), api('/projects').catch(() => ({ rows: [] }))]);
+  const [home, recentItems, svcHtml, proj, posts] = await Promise.all([api('/home'), recent.get().length ? api('/products/batch', { method: 'POST', body: { ids: recent.get() } }) : [], servicesSection(), api('/projects').catch(() => ({ rows: [] })), api('/posts').catch(() => [])]);
   const top = `<div class="home-top"><div class="svc-tiles">${TILE_SERVICES.map(([id, name, ic]) => `<a href="#/services/${id}">${esc(name)}<span>${ic}</span></a>`).join('')}</div>${sliderHtml()}</div>`;
   const hasStock = home.trending.length || home.new_arrivals.length;
   const today = new Date().toISOString().slice(0, 10);
@@ -166,7 +168,8 @@ async function pageHome() {
     ${home.deals.length ? section('💸 Best deals', 'Biggest savings on MRP', grid(home.deals, 'hscroll'), '<a class="link small" href="#/search?sort=discount">All deals →</a>') : ''}
     ${recentItems.length ? section('Recently viewed', '', grid(recentItems, 'hscroll')) : ''}
     ${home.new_arrivals.length ? section('New arrivals', '', grid(home.new_arrivals, 'hscroll'), '<a class="link small" href="#/search?sort=newest">See all →</a>') : ''}
-    ${reviewsSection()}`;
+    ${reviewsSection()}
+    ${homeExtras(S, posts)}`;
   startSlider();
   $('#hero-ai')?.addEventListener('submit', (e) => { e.preventDefault(); const idea = formData(e.target).idea.trim(); location.hash = `#/builder?idea=${encodeURIComponent(idea)}&go=1`; });
   $('#checkin')?.addEventListener('click', async () => { const r = await api('/me/checkin', { method: 'POST' }); toast(r.already ? 'Already collected today' : `+${r.points} points · ${r.streak}-day streak 🔥`); await loadMe(); pageHome(); });
@@ -181,7 +184,7 @@ async function pageListing(params, catSlug) {
   const r = await api(`/products?${qs}`);
   const set = (k, v) => { const p = new URLSearchParams(params); v ? p.set(k, v) : p.delete(k); return `${location.hash.split('?')[0]}?${p}`; };
   app.innerHTML = `<div class="listing">
-    <aside class="filters"><div class="card flat stack">
+    <aside class="filters"><button type="button" class="btn filt-toggle" onclick="this.parentNode.classList.toggle('open')">⚙ Filters &amp; sort</button><div class="card flat stack">
       <h3>Filters</h3>
       <label class="f">Sort by<select id="sort">${[['popular', 'Most popular'], ['price_asc', 'Price: low to high'], ['price_desc', 'Price: high to low'], ['discount', 'Biggest discount'], ['newest', 'Newest']].map(([v, l]) => `<option value="${v}" ${v === sort ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="check"><input type="checkbox" id="instock" ${params.get('in_stock') ? 'checked' : ''}> In stock only</label>
@@ -304,7 +307,7 @@ async function pageCart() {
   const items = cart.items();
   if (!items.length) {
     const rec = await api('/recommendations', { method: 'POST', body: { recent_ids: recent.get() } });
-    app.innerHTML = `<div class="empty card"><div class="big">🛒</div><h2>Your cart is empty</h2><p>Not sure what you need? Describe your project and let the AI fill your cart.</p><div class="row" style="justify-content:center"><a class="btn primary" href="#/builder">✨ AI Project Builder</a><a class="btn" href="#/search">Browse products</a></div></div>${section('You might like', '', grid(rec, 'hscroll'))}`;
+    app.innerHTML = `${emptyCart()}${rec.length ? section('You might like', '', grid(rec, 'hscroll')) : ''}`;
     return;
   }
   const st = local.get('drv_checkout', {});
@@ -726,6 +729,7 @@ async function route() {
   const parts = (path || '/').split('/').filter(Boolean);
   $$('.modal-wrap, .lightbox').forEach((m) => m.remove());
   renderHeader(); window.scrollTo(0, 0); $('#allcats-menu')?.classList.add('hidden');
+  updateShell(parts, { cart: cart.count(), wish: wish.get().length });
   if (params.get('ref')) local.set('drv_ref', params.get('ref'));
   try {
     switch (parts[0]) {
@@ -753,7 +757,14 @@ async function route() {
       case 'policy': pagePolicy(parts[1]); break;
       case 'login': pageAuth('login', params); break;
       case 'register': pageAuth('register', params); break;
-      case 'account': await pageAccount(); break;
+      case 'account':
+        if (parts[1] === 'addresses') await pageAddresses(app, S, setTitle);
+        else if (isAppUI() && parts[1] !== 'details') pageAccountApp(app, S, setTitle, { logout: async () => { await unlinkPush(); setToken(null); S.user = null; renderHeader(); location.hash = '#/'; } });
+        else await pageAccount();
+        break;
+      case 'categories': pageCategories(app, S, setTitle); break;
+      case 'notifications': await pageNotifications(app, S, setTitle); break;
+      case 'waitlist': await pageWaitlist(app, S, setTitle, grid); break;
       default: app.innerHTML = '<div class="empty card"><div class="big">🤖</div><h2>Page not found</h2><a class="btn primary" href="#/">Go home</a></div>';
     }
   } catch (e) {
@@ -793,7 +804,7 @@ function pagePolicy(slug) {
   $('#ft-legal').textContent = S.cfg.store.legal_name && S.cfg.store.legal_name !== S.cfg.store.name ? ` · Operated by ${S.cfg.store.legal_name}` : '';
   $('#ft-apps').innerHTML = appBadges(site);
   $('#ft-contact').innerHTML = `${esc(S.cfg.store.support_phone)}<br>${esc(S.cfg.store.support_email)}<br>${esc(S.cfg.store.address)}`;
-  initNative();
+  initNative(); mountShell();
   await loadMe(); renderCartCount(); syncCart(); syncPushToken();
   if (isApp()) $('#ft-apps')?.closest('.ft-brand')?.querySelectorAll('h4, #ft-apps').forEach((x) => x.remove());
   window.addEventListener('hashchange', route); route(); exitIntent();

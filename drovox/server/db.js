@@ -376,7 +376,8 @@ ensureColumn('users', 'source', "TEXT NOT NULL DEFAULT 'web'");  // web | walk_i
 ensureColumn('users', 'partner_type', 'TEXT');                     // set when a partner application is approved
 ensureColumn('users', 'partner_discount', 'REAL NOT NULL DEFAULT 0');
 ensureColumn('orders', 'partner_discount', 'REAL NOT NULL DEFAULT 0');
-ensureColumn('products', 'images', "TEXT NOT NULL DEFAULT '[]'");        // JSON [image key] — first is the main photo
+ensureColumn('products', 'images', "TEXT NOT NULL DEFAULT '[]'");
+ensureColumn('categories', 'image', 'TEXT');                             // photo key for the app / home category tiles        // JSON [image key] — first is the main photo
 ensureColumn('products', 'short_description', 'TEXT');                   // one-paragraph summary under the title
 ensureColumn('products', 'highlights', "TEXT NOT NULL DEFAULT '[]'");    // JSON [bullet]
 ensureColumn('products', 'in_box', "TEXT NOT NULL DEFAULT '[]'");        // JSON [item] — package includes

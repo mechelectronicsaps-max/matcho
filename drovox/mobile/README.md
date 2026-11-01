@@ -10,6 +10,16 @@ The app is a **Capacitor** shell around the live Drovox store, with native featu
 - **Look and offline:** splash screen, status bar in brand colours, and an offline screen with *Try again*.
 - **No app badges in the app:** the "Get the app" badges are hidden inside the app.
 
+**App look:** inside the app the store switches to an app layout:
+- purple header with a search box whose suggestions change every few seconds, plus Wishlist and Notifications buttons
+- floating bottom tabs: **Home · Categories · Cart · Account**
+- a **Categories** grid of orange tiles; add photos in **Stockist → Categories → 📷 Photo**
+- an **Account** page with quick actions (Orders, Wishlist, Drovox Points, Track Order) and menus for shopping, services, help and policies
+- **Notifications**, **My Waitlist** and **Saved Addresses** pages
+- an app-style empty cart, plus the Blogs rail and YouTube banner on the home page
+
+These pages come from the website (`public/js/appshell.js`), so changing them needs **no new app build**. To preview the app layout in any browser, open `http://localhost:3000/?app=1` (and `?app=0` to switch back).
+
 Package name: `in.drovox.app` · Settings: `app.config.json`
 
 ---

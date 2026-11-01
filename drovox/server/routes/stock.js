@@ -207,6 +207,24 @@ stock.post('/categories/starter', (req, res) => {
   audit(req, 'category.starter', 'category', null, { added });
   res.json({ added });
 });
+// category photo (shown on the app's Categories grid and the home page tiles)
+stock.post('/categories/:id/image', (req, res, next) => {
+  try {
+    const c = get('SELECT * FROM categories WHERE id = ?', req.params.id);
+    if (!c) return res.status(404).json({ error: 'Not found' });
+    const key = saveImage(req.body?.variants);
+    if (c.image) deleteImage(c.image);
+    run('UPDATE categories SET image = ? WHERE id = ?', key, c.id);
+    res.json({ image: key });
+  } catch (e) { next(e); }
+});
+stock.delete('/categories/:id/image', (req, res) => {
+  const c = get('SELECT * FROM categories WHERE id = ?', req.params.id);
+  if (!c) return res.status(404).json({ error: 'Not found' });
+  if (c.image) deleteImage(c.image);
+  run('UPDATE categories SET image = NULL WHERE id = ?', c.id);
+  res.json({ ok: true });
+});
 stock.put('/categories/:id', (req, res) => {
   const c = get('SELECT * FROM categories WHERE id = ?', req.params.id);
   if (!c) return res.status(404).json({ error: 'Not found' });

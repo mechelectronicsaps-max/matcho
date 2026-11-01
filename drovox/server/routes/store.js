@@ -287,6 +287,19 @@ store.get('/orders/:no/invoice', requireUser, (req, res) => {
   res.json(invoiceData(o.id));
 });
 // ---- app: register this phone for push notifications --------------------------------------
+// ---- app: notifications bell and back-in-stock waitlist -----------------------------------------
+store.get('/me/notifications', requireUser, (req, res) => {
+  const d = String(req.user.phone || '').replace(/\D/g, '').slice(-10);
+  if (d.length !== 10) return res.json([]);
+  res.json(all(`SELECT id, body, created_at, order_id FROM notifications WHERE substr(replace(replace(to_phone, ' ', ''), '+', ''), -10) = ? AND status != 'failed' AND campaign_id IS NULL ORDER BY id DESC LIMIT 40`, d)
+    .map((n) => ({ ...n, order_no: n.order_id ? get('SELECT order_no FROM orders WHERE id = ?', n.order_id)?.order_no || null : null })));
+});
+store.get('/me/waitlist', requireUser, (req, res) => {
+  res.json(all(`SELECT a.id alert_id, a.created_at alert_at, a.notified_at, p.* FROM stock_alerts a JOIN products p ON p.id = a.product_id WHERE a.user_id = ? AND p.active = 1 ORDER BY a.id DESC`, req.user.id)
+    .map((p) => ({ ...card(p), alert_id: p.alert_id, alert_at: p.alert_at, notified_at: p.notified_at })));
+});
+store.delete('/me/waitlist/:id', requireUser, (req, res) => { run('DELETE FROM stock_alerts WHERE id = ? AND user_id = ?', req.params.id, req.user.id); res.json({ ok: true }); });
+
 store.post('/me/push-token', requireUser, (req, res) => {
   const token = String(req.body?.token || '').trim(); const platform = req.body?.platform === 'ios' ? 'ios' : 'android';
   if (token.length < 20 || token.length > 4096) return res.status(400).json({ error: 'Invalid token' });
