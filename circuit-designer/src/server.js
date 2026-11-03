@@ -6,7 +6,7 @@ import { listComponents } from './library/components.js';
 import { searchFootprints, getFootprint, footprintCategories, loadFootprints } from './library/footprints.js';
 import { renderFootprintSvg } from './export/pcbSvg.js';
 import { exportKicadMod } from './export/kicad.js';
-import { designFromPrompt, aiAvailable } from './ai/designer.js';
+import { designFromPrompt, aiAvailable, keyProblem } from './ai/designer.js';
 import { validateDesign } from './engine/design.js';
 import { runPipeline, bundleAll } from './engine/pipeline.js';
 import { TEMPLATES } from './ai/templates.js';
@@ -96,5 +96,8 @@ app.get('/api/results/:id/files/:file', (req, res) => {
 const port = Number(process.env.PORT) || 3000;
 app.listen(port, () => {
   console.log(`Circuit Designer running on http://localhost:${port}`);
-  console.log(aiAvailable() ? `AI design enabled (${process.env.CLAUDE_MODEL || 'claude-opus-5-5'})` : 'ANTHROPIC_API_KEY not set: offline mode with built-in example designs');
+  const problem = keyProblem();
+  if (aiAvailable() && !problem) console.log(`AI design enabled (${process.env.CLAUDE_MODEL || 'claude-opus-5-5'})`);
+  else console.log(`${problem} ${aiAvailable() ? 'Requests to Claude will probably fail.' : 'Running in offline mode with built-in example designs.'}`);
+  for (const v of ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN']) if (process.env[v]) console.log(`Note: ${v} is set in this shell; it can redirect or override API requests.`);
 });

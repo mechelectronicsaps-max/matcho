@@ -72,11 +72,28 @@ Example of a correct design (555 LED flasher):
 ${JSON.stringify(TEMPLATES[0].design)}`;
 
 let client = null;
-export function aiAvailable() {
-  return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+
+/** API key from the environment, with stray quotes/whitespace removed. */
+function apiKey() {
+  return String(process.env.ANTHROPIC_API_KEY ?? '').trim().replace(/^['"]|['"]$/g, '').trim();
 }
+
+export function aiAvailable() {
+  const k = apiKey();
+  return Boolean(k) && !/your[-_]?key/i.test(k);
+}
+
+export function keyProblem() {
+  const k = apiKey();
+  if (!k) return 'ANTHROPIC_API_KEY is not set.';
+  if (/your[-_]?key/i.test(k)) return 'ANTHROPIC_API_KEY still contains the example placeholder; paste your real key.';
+  if (!k.startsWith('sk-ant-')) return 'ANTHROPIC_API_KEY does not look like an Anthropic API key (they start with "sk-ant-").';
+  return null;
+}
+
 function getClient() {
-  client ??= new Anthropic();
+  // Pass the key explicitly so a stray ANTHROPIC_AUTH_TOKEN or login profile is never used instead.
+  client ??= new Anthropic({ apiKey: apiKey() });
   return client;
 }
 
@@ -91,7 +108,19 @@ async function callClaude(messages) {
     system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
     messages,
   });
-  const msg = await stream.finalMessage();
+  let msg;
+  try {
+    msg = await stream.finalMessage();
+  } catch (e) {
+    if (e instanceof Anthropic.AuthenticationError) {
+      const k = apiKey();
+      throw new Error(`Anthropic rejected the API key (401). Key in use: ${k.slice(0, 10)}...${k.slice(-4)} (${k.length} chars)${process.env.ANTHROPIC_BASE_URL ? `, ANTHROPIC_BASE_URL=${process.env.ANTHROPIC_BASE_URL}` : ''}. Create a new key at https://console.anthropic.com/settings/keys, make sure the account has credits, set it with no quotes or spaces and restart the server.`);
+    }
+    if (e instanceof Anthropic.PermissionDeniedError) throw new Error('This API key is not allowed to use the model (403). Check your plan, or set CLAUDE_MODEL to a model your account can use.');
+    if (e instanceof Anthropic.NotFoundError) throw new Error(`Model "${MODEL}" was not found for this key (404). Set CLAUDE_MODEL to a model your account can use.`);
+    if (e instanceof Anthropic.RateLimitError) throw new Error('Rate limited by the Anthropic API (429). Wait a moment and try again.');
+    throw e;
+  }
   if (msg.stop_reason === 'refusal') throw new Error('The model declined this request.');
   if (msg.stop_reason === 'max_tokens') throw new Error('The design was too large for one response; try a smaller circuit or split it into blocks.');
   const text = msg.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
