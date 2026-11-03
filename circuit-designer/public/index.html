@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Circuit Designer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="logo">⌁</span> Circuit Designer <small>prompt → schematic → PCB</small></div>
+    <div id="status" class="status">loading…</div>
+  </header>
+
+  <main>
+    <aside class="left">
+      <label for="prompt" class="lbl">Describe the circuit you want</label>
+      <textarea id="prompt" rows="9" placeholder="e.g. An ESP32 board powered from USB-C with a CH340 USB-serial chip, auto-reset, a status LED and a header for I2C and 4 GPIOs."></textarea>
+      <button id="go" class="primary">Generate schematic + PCB</button>
+      <div id="examples" class="examples"></div>
+      <div id="progress" class="progress"></div>
+
+      <section id="summary" class="summary hidden">
+        <h2 id="title"></h2>
+        <p id="desc"></p>
+        <div id="stats" class="stats"></div>
+        <div id="downloads" class="downloads"></div>
+        <details id="notesBox"><summary>Design notes</summary><ul id="notes"></ul></details>
+        <details id="warnBox"><summary>Warnings <span id="warnCount"></span></summary><ul id="warnings"></ul></details>
+      </section>
+    </aside>
+
+    <section class="right">
+      <nav class="tabs">
+        <button data-tab="schematic" class="active">Schematic</button>
+        <button data-tab="pcb">PCB layout</button>
+        <button data-tab="bom">BOM</button>
+        <button data-tab="netlist">Netlist / edit</button>
+        <button data-tab="footprints">Footprint library</button>
+        <button data-tab="parts">Parts</button>
+      </nav>
+
+      <div class="tab active" id="tab-schematic"><div class="viewer" id="schView"><p class="empty">Generate a design to see its schematic.</p></div></div>
+
+      <div class="tab" id="tab-pcb">
+        <div class="layers">
+          <label><input type="checkbox" data-layer="top" checked> Top copper</label>
+          <label><input type="checkbox" data-layer="bottom" checked> Bottom copper</label>
+          <label><input type="checkbox" data-layer="silk" checked> Silkscreen</label>
+          <label><input type="checkbox" data-layer="labels" checked> Labels</label>
+          <label><input type="checkbox" data-layer="rats" checked> Unrouted</label>
+        </div>
+        <div class="viewer dark" id="pcbView"><p class="empty">Generate a design to see its PCB.</p></div>
+      </div>
+
+      <div class="tab" id="tab-bom"><div class="scroll"><table id="bom"></table></div></div>
+
+      <div class="tab" id="tab-netlist">
+        <p class="hint">This is the design the engine used. Edit parts, values, footprints or connections and press <b>Re-render</b>; no AI call is made.</p>
+        <textarea id="designJson" spellcheck="false"></textarea>
+        <button id="rerender">Re-render</button>
+      </div>
+
+      <div class="tab" id="tab-footprints">
+        <div class="fpbar">
+          <input id="fpSearch" placeholder="Search footprints (e.g. soic 8, qfn, usb, 0805, header 2x05)">
+          <select id="fpCat"><option value="">All categories</option></select>
+          <span id="fpCount"></span>
+        </div>
+        <div id="fpGrid" class="fpgrid"></div>
+      </div>
+
+      <div class="tab" id="tab-parts"><div class="scroll"><table id="parts"></table></div></div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
