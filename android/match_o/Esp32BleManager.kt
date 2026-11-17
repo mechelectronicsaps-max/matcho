@@ -119,51 +119,6 @@ class Esp32BleManager(
 
     private var bluetoothGatt: BluetoothGatt? = null
 
-    // ----------------------------------------------------------------
-    // AUTOMATIC RECONNECT
-    // The link can break by itself (for example when the radio of the unit is busy with the barcode scanner).
-    // Unless the user pressed Disconnect (or a firmware update is running) the app connects again by itself.
-    // ----------------------------------------------------------------
-    @Volatile
-    private var lastDevice: BluetoothDevice? = null
-
-    @Volatile
-    private var userDisconnected = false
-
-    private var reconnectJob: Job? = null
-
-    private fun scheduleReconnect(skip: Boolean) {
-        val device = lastDevice ?: return
-        if (userDisconnected || skip) return
-        if (reconnectJob?.isActive == true) return
-
-        reconnectJob =
-            scope.launch {
-
-                val waits = longArrayOf(1500, 2500, 4000, 6000, 8000, 10000)
-
-                for (i in waits.indices) {
-
-                    delay(waits[i])
-
-                    if (userDisconnected || _connected.value) return@launch
-
-                    _status.value =
-                        "Reconnecting (${i + 1}/${waits.size})..."
-
-                    connect(device)
-
-                    delay(8000)                       // time for the result
-
-                    if (_connected.value) return@launch
-                }
-
-                if (!_connected.value) {
-                    _status.value = "Disconnected"
-                }
-            }
-    }
-
     private var writeCharacteristic:
             BluetoothGattCharacteristic? = null
 
@@ -453,8 +408,6 @@ class Esp32BleManager(
                         bluetoothGatt = null
                     }
 
-                    scheduleReconnect(firmwareTransferActive || firmwareVerificationPending)
-
                     return
                 }
 
@@ -491,9 +444,6 @@ class Esp32BleManager(
                     }
 
                     BluetoothProfile.STATE_DISCONNECTED -> {
-
-                        // during a firmware update the unit restarts by itself: no reconnect from here
-                        val skipReconnect = firmwareTransferActive || firmwareVerificationPending
 
                         stopDataPolling()
 
@@ -532,8 +482,6 @@ class Esp32BleManager(
                         if (bluetoothGatt === gatt) {
                             bluetoothGatt = null
                         }
-
-                        scheduleReconnect(skipReconnect)
                     }
                 }
             }
@@ -988,9 +936,6 @@ class Esp32BleManager(
             return
         }
 
-        lastDevice = device
-        userDisconnected = false
-
         stopScan()
 
         try {
@@ -1075,9 +1020,6 @@ class Esp32BleManager(
 
     @SuppressLint("MissingPermission")
     fun disconnect() {
-
-        userDisconnected = true
-        reconnectJob?.cancel()
 
         stopDataPolling()
 
