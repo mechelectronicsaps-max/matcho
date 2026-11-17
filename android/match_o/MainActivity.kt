@@ -13,9 +13,11 @@ import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
@@ -33,6 +35,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -1518,54 +1522,139 @@ private fun WifiConfigDialog(
     bleManager: Esp32BleManager,
     onDismiss: () -> Unit
 ) {
+    // The WiFi networks are found with the PHONE's own WiFi radio (PhoneWifiScanner).
+    // Only the chosen SSID + password are sent to the unit (SET_WIFI), which stores
+    // them in its EEPROM and restarts to join the network.
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var networks by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var networks by remember { mutableStateOf<List<PhoneWifiNetwork>>(emptyList()) }
     var selectedSsid by remember { mutableStateOf("") }
+    var manualSsid by remember { mutableStateOf(false) }       // "Other network": type the name (hidden network)
     var password by remember { mutableStateOf("") }
-    var loading by remember { mutableStateOf(true) }
+    var showPassword by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
+    var problem by remember { mutableStateOf<String?>(null) }
+    var permitted by remember { mutableStateOf(PhoneWifiScanner.missingPermissions(context).isEmpty()) }
+
+    fun rescan() {
+        problem = when {
+            !permitted -> "Allow the location / nearby devices permission to list the WiFi networks."
+            !PhoneWifiScanner.isWifiOn(context) -> "Switch on WiFi on this phone to search for networks."
+            !PhoneWifiScanner.isLocationOn(context) -> "Switch on Location on this phone: Android lists no WiFi networks without it."
+            else -> null
+        }
+        if (problem != null) return
+        loading = true
+        scope.launch {
+            networks = PhoneWifiScanner.scan(context)
+            loading = false
+            if (networks.isEmpty()) problem = "No WiFi networks found. Tap RESCAN, or type the name with OTHER NETWORK."
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        permitted = PhoneWifiScanner.missingPermissions(context).isEmpty()
+        rescan()
+    }
 
     LaunchedEffect(Unit) {
-        loading = true
-        networks = bleManager.scanWifi()
-        loading = false
+        val missing = PhoneWifiScanner.missingPermissions(context)
+        if (missing.isNotEmpty()) permissionLauncher.launch(missing.toTypedArray()) else rescan()
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("WiFi Configuration") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "Networks found by this phone. MATCH-O works on 2.4 GHz WiFi only.",
+                    color = MatchOColors.TextSecondary,
+                    fontSize = 12.sp
+                )
+
                 if (loading) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(22.dp))
                         Spacer(modifier = Modifier.size(8.dp))
                         Text("Finding nearby WiFi...")
                     }
-                } else if (networks.isEmpty()) {
-                    Text("No WiFi networks found. Tap RESCAN.")
-                } else {
-                    networks.forEach { net ->
-                        val name = net.optString("ssid")
-                        val signal = net.optInt("rssi")
-                        Text(
-                            text = "$name  ($signal dBm)",
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { selectedSsid = name }
-                                .padding(vertical = 8.dp),
-                            color = if (selectedSsid == name)
-                                MatchOColors.PrimaryGreen else MatchOColors.TextPrimary
-                        )
+                }
+
+                problem?.let { text ->
+                    Text(text, color = MatchOColors.AlertRed, fontSize = 12.sp)
+                    if (!PhoneWifiScanner.isLocationOn(context)) {
+                        TextButton(onClick = {
+                            context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                        }) { Text("OPEN LOCATION SETTINGS") }
                     }
                 }
 
+                if (!loading) {
+                    networks.forEach { net ->
+                        val usable = net.is24GHz
+                        val bars = when {
+                            net.rssi >= -60 -> "Strong"
+                            net.rssi >= -72 -> "Good"
+                            else -> "Weak"
+                        }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = usable) {
+                                    selectedSsid = net.ssid
+                                    manualSsid = false
+                                }
+                                .padding(vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = (if (net.secured) "\uD83D\uDD12 " else "") + net.ssid,
+                                color = when {
+                                    !usable -> MatchOColors.TextSecondary
+                                    selectedSsid == net.ssid && !manualSsid -> MatchOColors.PrimaryGreen
+                                    else -> MatchOColors.TextPrimary
+                                }
+                            )
+                            Text(
+                                text = if (usable) "$bars  (${net.rssi} dBm)" else "5 GHz only - not supported by MATCH-O",
+                                color = MatchOColors.TextSecondary,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+
+                TextButton(onClick = {
+                    manualSsid = true
+                    selectedSsid = ""
+                }) { Text("OTHER NETWORK (type the name)") }
+
+                if (manualSsid) {
+                    OutlinedTextField(
+                        value = selectedSsid,
+                        onValueChange = { selectedSsid = it.take(32) },
+                        label = { Text("WiFi name (SSID)") },
+                        singleLine = true
+                    )
+                }
+
                 if (selectedSsid.isNotBlank()) {
-                    Text("Selected: $selectedSsid", color = MatchOColors.PrimaryGreen)
+                    if (!manualSsid) Text("Selected: $selectedSsid", color = MatchOColors.PrimaryGreen)
                     OutlinedTextField(
                         value = password,
-                        onValueChange = { password = it },
+                        onValueChange = { password = it.take(64) },
                         label = { Text("WiFi Password") },
-                        singleLine = true
+                        singleLine = true,
+                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        trailingIcon = {
+                            TextButton(onClick = { showPassword = !showPassword }) {
+                                Text(if (showPassword) "HIDE" else "SHOW", fontSize = 11.sp)
+                            }
+                        }
                     )
                 }
             }
@@ -1573,17 +1662,23 @@ private fun WifiConfigDialog(
         confirmButton = {
             Row {
                 TextButton(onClick = {
-                    loading = true
-                    scope.launch {
-                        networks = bleManager.scanWifi()
-                        loading = false
-                    }
+                    val missing = PhoneWifiScanner.missingPermissions(context)
+                    if (missing.isNotEmpty()) permissionLauncher.launch(missing.toTypedArray()) else rescan()
                 }) { Text("RESCAN") }
                 Button(
                     enabled = selectedSsid.isNotBlank() && !loading,
                     onClick = {
-                        bleManager.saveWifi(selectedSsid, password)
-                        onDismiss()
+                        val ssid = selectedSsid.trim()
+                        if (bleManager.saveWifi(ssid, password)) {
+                            Toast.makeText(
+                                context,
+                                "WiFi \"$ssid\" saved on MATCH-O. The unit restarts and joins it.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            onDismiss()
+                        } else {
+                            problem = "Not sent: MATCH-O is not connected over Bluetooth."
+                        }
                     }
                 ) { Text("SAVE") }
             }
@@ -1603,6 +1698,7 @@ private fun ScannerConfigDialog(
     // Settings > Bluetooth). Once a device is picked, its MAC is handed
     // to the ESP32 and the scanner is unpaired from the phone so the
     // ESP32 is free to connect to it.
+    val context = LocalContext.current
     val devices by bleManager.phoneScannerDevices.collectAsState()
     val scanning by bleManager.phoneScanActive.collectAsState()
 
@@ -1650,13 +1746,25 @@ private fun ScannerConfigDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    bleManager.selectPhoneScannerDevice(d)
-                                    onDismiss()
+                                    if (bleManager.selectPhoneScannerDevice(d)) {
+                                        Toast.makeText(
+                                            context,
+                                            "Scanner ${d.mac} saved on MATCH-O. Touch the scanner icon on the unit to connect it.",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                        onDismiss()
+                                    } else {
+                                        Toast.makeText(context, "Not sent: MATCH-O is not connected over Bluetooth.", Toast.LENGTH_LONG).show()
+                                    }
                                 }
                                 .padding(vertical = 8.dp)
                         ) {
                             Text(d.name, color = MatchOColors.TextPrimary)
-                            Text(d.mac, color = MatchOColors.TextSecondary, fontSize = 12.sp)
+                            Text(
+                                d.mac + if (d.bonded) "   paired with this phone (will be unpaired)" else "",
+                                color = MatchOColors.TextSecondary,
+                                fontSize = 12.sp
+                            )
                         }
                     }
                 }

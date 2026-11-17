@@ -1283,8 +1283,13 @@ class Esp32BleManager(
     }
 
     // ================================================================
-    // WIFI SCAN
+    // WIFI SCAN (ON THE ESP32 - LEGACY)
     // ================================================================
+    //
+    // Not used any more: the WiFi networks are found with the PHONE's
+    // radio (PhoneWifiScanner) and only SSID + password are sent with
+    // saveWifi(). The current firmware answers SCAN_WIFI with
+    // "use_phone_scan".
 
     suspend fun scanWifi():
             List<JSONObject> {
@@ -1387,8 +1392,6 @@ class Esp32BleManager(
             return
         }
 
-        // Only show newly discovered devices - not devices already
-        // paired/stored on the phone, so start from an empty list.
         _phoneScannerDevices.value = emptyList()
 
         if (discoveryReceiver == null) {
@@ -1413,11 +1416,12 @@ class Esp32BleManager(
                             val bonded =
                                 device.bondState == BluetoothDevice.BOND_BONDED
 
-                            // Only surface new, not-yet-paired devices -
-                            // devices already stored/bonded on the phone
-                            // are skipped.
-                            if (bonded) return
-
+                            // A scanner that is PAIRED with this phone is shown too (marked
+                            // "paired"): it is nearby, so it is found here. Before, paired
+                            // devices were skipped, so a scanner that had once been paired
+                            // with the phone never appeared in the list. Picking it unpairs
+                            // it from the phone (see selectPhoneScannerDevice), so the
+                            // MATCH-O unit can connect to it.
                             val name = try {
                                 device.name
                             } catch (_: SecurityException) {
@@ -1583,8 +1587,10 @@ class Esp32BleManager(
     }
 
     // ================================================================
-    // SAVE WIFI
+    // SAVE WIFI  (SSID + password found / typed on the phone)
     // ================================================================
+    //
+    // The unit stores both in its EEPROM and restarts to join the network.
 
     fun saveWifi(
         ssid: String,
@@ -1616,8 +1622,11 @@ class Esp32BleManager(
     }
 
     // ================================================================
-    // SAVE BARCODE SCANNER
+    // SAVE BARCODE SCANNER  (MAC found with the phone's Bluetooth)
     // ================================================================
+    //
+    // The unit stores the MAC in its EEPROM. It connects to the scanner
+    // when the scanner icon on its screen is touched (or CONNECT_SCANNER).
 
     fun saveScanner(
         mac: String
