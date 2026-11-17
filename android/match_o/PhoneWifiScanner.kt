@@ -41,6 +41,7 @@ object PhoneWifiScanner {
     fun missingPermissions(context: Context): List<String> {
         val needed = ArrayList<String>()
         needed += Manifest.permission.ACCESS_FINE_LOCATION
+        needed += Manifest.permission.ACCESS_COARSE_LOCATION        // Android 12+ ignores a FINE request without COARSE
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             needed += Manifest.permission.NEARBY_WIFI_DEVICES
         }
